@@ -16,13 +16,12 @@
 
 
 <link rel="stylesheet" href="includes/jmesa/jmesa.css" type="text/css">
-<link rel="stylesheet" href="includes/css/oc2017_styles.css" type="text/css">
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jquery.min.js"></script>
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jquery.jmesa.js"></script>
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jmesa.js"></script>
 <%-- <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jmesa-original.js"></script> --%>
 <script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery.blockUI.js"></script>
-<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.1.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.4.1.js"></script>
 <style type="text/css">
 
     .graph {
@@ -61,9 +60,15 @@
         </c:if>   
     </span><br>
     <div style="text-align:center; width:100%;">
-        <button onclick="hm('box');">OK</button>
+        <button id="btn" onclick="hm('box');">OK</button>
     </div>
 </div>
+
+<script type="text/javascript">
+    window.onload = function() {
+        document.getElementById("btn").focus();
+    };
+</script>
 
 <tr id="sidebar_Instructions_open" style="display: all">
     <td class="sidebar_tab">
@@ -133,7 +138,7 @@
 </c:if>
 <span class="table_title_Admin" style="line-height:15px;">
 <a style="text-decoration: none;" href="ViewNotes?module=submit&listNotes_f_discrepancyNoteBean.user=<c:out value='${userBean.name}' />"><p style="padding-left:10px;"><fmt:message key="notes_assigned_to_me" bundle="${restext}"/>
-                <span name="flag_start" class="fa fa-bubble-white" border="0" alt="<fmt:message key="discrepancy_note" bundle="${resword}"/>" title="<fmt:message key="discrepancy_note" bundle="${resword}"/>"> 0</p></a><br /><br />
+                <span name="flag_start" class="fa fa-bubble-white" border="0" alt="<fmt:message key="discrepancy_note" bundle="${resword}"/>" title="<fmt:message key="discrepancy_note" bundle="${resword}"/>"></p></a><br /><br />
 </span>
 
 <c:if test="${userRole.coordinator || userRole.director}">

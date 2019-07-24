@@ -12,23 +12,28 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.akaza.openclinica.bean.admin.AuditBean;
+import org.akaza.openclinica.bean.admin.CRFBean;
+import org.akaza.openclinica.bean.core.Role;
 import org.akaza.openclinica.bean.core.Status;
 import org.akaza.openclinica.bean.core.Utils;
-import org.akaza.openclinica.bean.managestudy.StudyBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
-import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
+import org.akaza.openclinica.bean.login.StudyUserRoleBean;
+import org.akaza.openclinica.bean.managestudy.*;
 import org.akaza.openclinica.bean.submit.EventCRFBean;
 import org.akaza.openclinica.bean.submit.FormLayoutBean;
 import org.akaza.openclinica.bean.submit.ItemDataBean;
 import org.akaza.openclinica.bean.submit.SubjectBean;
+import org.akaza.openclinica.control.SpringServletAccess;
 import org.akaza.openclinica.control.core.SecureController;
 import org.akaza.openclinica.control.form.FormProcessor;
 import org.akaza.openclinica.control.submit.SubmitDataServlet;
 import org.akaza.openclinica.dao.admin.AuditDAO;
 import org.akaza.openclinica.dao.admin.CRFDAO;
+import org.akaza.openclinica.dao.core.CoreResources;
+import org.akaza.openclinica.dao.hibernate.EventCrfDao;
+import org.akaza.openclinica.dao.hibernate.EventDefinitionCrfPermissionTagDao;
 import org.akaza.openclinica.dao.managestudy.EventDefinitionCRFDAO;
 import org.akaza.openclinica.dao.managestudy.StudyDAO;
 import org.akaza.openclinica.dao.managestudy.StudyEventDAO;
@@ -39,12 +44,15 @@ import org.akaza.openclinica.dao.submit.EventCRFDAO;
 import org.akaza.openclinica.dao.submit.FormLayoutDAO;
 import org.akaza.openclinica.dao.submit.ItemDataDAO;
 import org.akaza.openclinica.dao.submit.SubjectDAO;
+import org.akaza.openclinica.domain.datamap.EventDefinitionCrf;
+import org.akaza.openclinica.domain.datamap.EventDefinitionCrfPermissionTag;
+import org.akaza.openclinica.domain.datamap.StudyEventDefinition;
 import org.akaza.openclinica.view.Page;
 import org.akaza.openclinica.web.InsufficientPermissionException;
 
 /**
  * @author jsampson
- * 
+ *
  */
 
 public class ViewStudySubjectAuditLogServlet extends SecureController {
@@ -84,6 +92,7 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
 
     @Override
     public void processRequest() throws Exception {
+        EventDefinitionCrfPermissionTagDao eventDefinitionCrfPermissionTagDao = (EventDefinitionCrfPermissionTagDao) SpringServletAccess.getApplicationContext(context).getBean("eventDefinitionCrfPermissionTagDao");
         StudySubjectDAO subdao = new StudySubjectDAO(sm.getDataSource());
         SubjectDAO sdao = new SubjectDAO(sm.getDataSource());
         AuditDAO adao = new AuditDAO(sm.getDataSource());
@@ -99,7 +108,7 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
         FormLayoutDAO fldao = new FormLayoutDAO(sm.getDataSource());
 
         ArrayList studySubjectAudits = new ArrayList();
-        ArrayList eventCRFAudits = new ArrayList();
+        ArrayList<AuditBean> eventCRFAudits = new ArrayList();
         ArrayList studyEventAudits = new ArrayList();
         ArrayList allDeletedEventCRFs = new ArrayList();
         String attachedFilePath = Utils.getAttachedFilePath(currentStudy);
@@ -155,11 +164,28 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
             Collection studySubjectAuditEvents = adao.findStudySubjectAuditEvents(studySubject.getId());
             // Text values will be shown on the page for the corresponding
             // integer values.
-            for (Iterator iterator = studySubjectAuditEvents.iterator(); iterator.hasNext();) {
+
+            Role role = currentRole.getRole();
+
+            for (Iterator iterator = studySubjectAuditEvents.iterator(); iterator.hasNext(); ) {
                 AuditBean auditBean = (AuditBean) iterator.next();
                 if (auditBean.getAuditEventTypeId() == 3) {
                     auditBean.setOldValue(Status.get(Integer.parseInt(auditBean.getOldValue())).getName());
                     auditBean.setNewValue(Status.get(Integer.parseInt(auditBean.getNewValue())).getName());
+                }
+
+                if (getAuditLogEventTypes().contains(auditBean.getAuditEventTypeId())) {
+
+                    if ((role.equals(Role.RESEARCHASSISTANT)
+                            && role.getDescription().equals("Clinical Research Coordinator"))
+                            || (role.equals(Role.INVESTIGATOR)
+                            && role.getDescription().equals("Investigator"))) {
+                        auditBean.setOldValue(getCrytoConverter().convertToEntityAttribute(auditBean.getOldValue()));
+                        auditBean.setNewValue(getCrytoConverter().convertToEntityAttribute(auditBean.getNewValue()));
+                    } else {
+                        auditBean.setOldValue("<Masked>");
+                        auditBean.setNewValue("<Masked>");
+                    }
                 }
             }
             studySubjectAudits.addAll(studySubjectAuditEvents);
@@ -175,7 +201,8 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
             for (int i = 0; i < events.size(); i++) {
                 // Link study event definitions
                 StudyEventBean studyEvent = (StudyEventBean) events.get(i);
-                studyEvent.setStudyEventDefinition((StudyEventDefinitionBean) seddao.findByPK(studyEvent.getStudyEventDefinitionId()));
+                StudyEventDefinitionBean sedBean = (StudyEventDefinitionBean) seddao.findByPK(studyEvent.getStudyEventDefinitionId());
+                studyEvent.setStudyEventDefinition(sedBean);
 
                 // Link event CRFs
                 studyEvent.setEventCRFs(ecdao.findAllByStudyEvent(studyEvent));
@@ -185,6 +212,8 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
                 allDeletedEventCRFs.addAll(deletedEventCRFs);
                 logger.info("deletedEventCRFs size[" + deletedEventCRFs.size() + "]");
             }
+            
+            List<String> tagIds = getPermissionTagsList().size()!=0 ?getPermissionTagsList():new ArrayList<>();
 
             for (int i = 0; i < events.size(); i++) {
                 StudyEventBean studyEvent = (StudyEventBean) events.get(i);
@@ -195,9 +224,24 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
                     // Link CRF and CRF Versions
                     EventCRFBean eventCRF = (EventCRFBean) eventCRFs.get(j);
                     eventCRF.setFormLayout((FormLayoutBean) fldao.findByPK(eventCRF.getFormLayoutId()));
-                    eventCRF.setCrf(cdao.findByLayoutId(eventCRF.getFormLayoutId()));
+                    CRFBean crf = cdao.findByLayoutId(eventCRF.getFormLayoutId());
+                    StudyEventDefinitionBean sed = (StudyEventDefinitionBean) seddao.findByPK(studyEvent.getStudyEventDefinitionId());
+                    eventCRF.setCrf(crf);
                     // Get the event crf audits
-                    eventCRFAudits.addAll(adao.findEventCRFAuditEventsWithItemDataType(eventCRF.getId()));
+
+                    List<AuditBean> abs = (List<AuditBean>) adao.findEventCRFAuditEventsWithItemDataType(eventCRF.getId());
+                    for (AuditBean ab : abs) {
+                        if (ab.getAuditTable().equalsIgnoreCase("item_data")) {
+                            EventDefinitionCRFBean edc = edcdao.findByStudyEventDefinitionIdAndCRFId(study, sed.getId(), crf.getId());
+                            List<EventDefinitionCrfPermissionTag> edcPTagIds = eventDefinitionCrfPermissionTagDao.findByEdcIdTagId(edc.getId(), edc.getParentId(), tagIds);
+                            if (edcPTagIds.size() != 0) {
+                                ab.setOldValue("<Masked>");
+                                ab.setNewValue("<Masked>");
+                            }
+                        }
+                    }
+
+                    eventCRFAudits.addAll(abs);
                     logger.info("eventCRFAudits size [" + eventCRFAudits.size() + "] eventCRF id [" + eventCRF.getId() + "]");
                 }
             }
@@ -229,4 +273,18 @@ public class ViewStudySubjectAuditLogServlet extends SecureController {
         }
     }
 
+    private List<Integer> getAuditLogEventTypes() {
+        List<Integer> auditLogEventTypes = new ArrayList<>();
+        auditLogEventTypes.add(43);
+        auditLogEventTypes.add(44);
+        auditLogEventTypes.add(46);
+        auditLogEventTypes.add(47);
+        auditLogEventTypes.add(49);
+        auditLogEventTypes.add(50);
+        auditLogEventTypes.add(52);
+        auditLogEventTypes.add(53);
+        auditLogEventTypes.add(55);
+        auditLogEventTypes.add(56);
+        return auditLogEventTypes;
+    }
 }

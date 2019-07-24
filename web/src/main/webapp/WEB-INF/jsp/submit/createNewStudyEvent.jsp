@@ -133,10 +133,12 @@
       if (objLeftNavRowElement.style) { objLeftNavRowElement = objLeftNavRowElement.style; }
         objLeftNavRowElement.display = (objLeftNavRowElement.display == "none" ) ? "" : "none";
         objExCl = MM_findObj("excl_"+strLeftNavRowElementName);
-        if(objLeftNavRowElement.display == "none"){
-            objExCl.src = "images/bt_Expand.gif";
-        }else{
-            objExCl.src = "images/bt_Collapse.gif";
+        if (objExCl) {
+	        if(objLeftNavRowElement.display == "none"){
+	            objExCl.src = "images/bt_Expand.gif";
+	        }else{
+	            objExCl.src = "images/bt_Collapse.gif";
+	        }
         }
       }
     }
@@ -147,7 +149,7 @@
 <form action="CreateNewStudyEvent" method="post">
 <jsp:include page="../include/showSubmitted.jsp" />
 
-<div style="width: 850px">
+<div style="width: 1350px">
 
 <!-- These DIVs define shaded box borders -->
 	<div class="box_T"><div class="box_L"><div class="box_R"><div class="box_B"><div class="box_TL"><div class="box_TR"><div class="box_BL"><div class="box_BR">

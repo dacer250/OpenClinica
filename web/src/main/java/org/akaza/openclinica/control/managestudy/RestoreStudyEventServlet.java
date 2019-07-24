@@ -59,7 +59,7 @@ public class RestoreStudyEventServlet extends SecureController {
             return;
         }
 
-        if (currentRole.getRole().equals(Role.STUDYDIRECTOR) || currentRole.getRole().equals(Role.COORDINATOR)) {
+        if (!currentRole.getRole().equals(Role.MONITOR) ){
             return;
         }
 
@@ -106,6 +106,9 @@ public class RestoreStudyEventServlet extends SecureController {
 
             StudyDAO studydao = new StudyDAO(sm.getDataSource());
             StudyBean study = (StudyBean) studydao.findByPK(studySub.getStudyId());
+            if (study.getParentStudyId() != 0)
+                study.setParentStudyName(((StudyBean) studydao.findByPK(study.getParentStudyId())).getName());
+
             request.setAttribute("study", study);
 
             String action = request.getParameter("action");
@@ -154,10 +157,27 @@ public class RestoreStudyEventServlet extends SecureController {
                     EventCRFBean eventCRF = (EventCRFBean) eventCRFs.get(k);
                     FormLayoutBean formLayout = (FormLayoutBean) fldao.findByPK(eventCRF.getFormLayoutId());
                     CRFBean crf = (CRFBean) cdao.findByPK(formLayout.getCrfId());
-                    EventDefinitionCRFBean edc = edcdao.findByStudyEventDefinitionIdAndCRFIdAndStudyId(sed.getId(), crf.getId(), study.getId());
+                    EventDefinitionCRFBean edc = null;
+
+                    if (study.getParentStudyId() != 0) {
+                        edc = edcdao.findByStudyEventDefinitionIdAndCRFIdAndStudyId(sed.getId(), crf.getId(), study.getId());
+                        if (edc == null || !edc.isActive()) {
+                            edc = edcdao.findByStudyEventDefinitionIdAndCRFIdAndStudyId(sed.getId(), crf.getId(), study.getParentStudyId());
+                        }
+                    } else {
+                        edc = edcdao.findByStudyEventDefinitionIdAndCRFIdAndStudyId(sed.getId(), crf.getId(), study.getId());
+                    }
+                    if (edc == null || !edc.isActive()) {
+                        logger.error("Event Definition Crf is null");
+                    }
 
                     if (eventCRF.getStatus().equals(Status.AUTO_DELETED) && edc.getStatus().equals(Status.AVAILABLE)) {
-                        eventCRF.setStatus(Status.AVAILABLE);
+                        if (eventCRF.getOldStatus().equals(Status.UNAVAILABLE)){
+                            eventCRF.setStatus(Status.UNAVAILABLE);
+                        }
+                        else {
+                            eventCRF.setStatus(Status.AVAILABLE);
+                        }
                         eventCRF.setUpdater(ub);
                         eventCRF.setUpdatedDate(new Date());
                         ecdao.update(eventCRF);

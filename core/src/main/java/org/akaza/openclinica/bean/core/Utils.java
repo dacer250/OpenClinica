@@ -10,12 +10,11 @@ package org.akaza.openclinica.bean.core;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Locale;
-import java.util.ResourceBundle;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -238,8 +237,12 @@ public class Utils {
         return CoreResources.getField("filePath");
     }
 
-    public static String getCrfMediaPath(String studyOid, String crfOid, String formLayoutOid) {
-        return "crf" + File.separator + studyOid + File.separator + crfOid + File.separator + formLayoutOid + File.separator;
+    public static String getCrfMediaPath(String studyOid, int filePath, String crfOid, String formLayoutOid) {
+        return "crf" + File.separator + studyOid + "-" + filePath + File.separator + crfOid + File.separator + formLayoutOid + File.separator;
+    }
+
+    public static String getStudyPath(String studyOid, int filePath) {
+        return "crf" + File.separator + studyOid + "-" + filePath + File.separator;
     }
 
     public static String getCrfMediaFilePath(String crfOid, String formLayoutOid) {
@@ -282,5 +285,22 @@ public class Utils {
         Pattern p = Pattern.compile(regexp);
         Matcher m = p.matcher(input);
         return m.find();
+    }
+
+    public static String getParamsString(Map<String, String[]> params)
+            throws UnsupportedEncodingException {
+        StringBuilder result = new StringBuilder();
+
+        for (Map.Entry<String, String[]> entry : params.entrySet()) {
+            result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
+            result.append("=");
+            result.append(URLEncoder.encode(entry.getValue()[0], "UTF-8"));
+            result.append("&");
+        }
+
+        String resultString = result.toString();
+        return resultString.length() > 0
+                ? resultString.substring(0, resultString.length() - 1)
+                : resultString;
     }
 }

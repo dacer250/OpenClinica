@@ -1,114 +1,128 @@
 package org.akaza.openclinica.controller;
 
-import com.auth0.IdentityVerificationException;
-import com.auth0.InvalidRequestException;
-import com.auth0.SessionUtils;
-import com.auth0.Tokens;
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.JWTVerifier;
-import com.auth0.jwt.interfaces.DecodedJWT;
-import org.akaza.openclinica.bean.login.UserAccountBean;
-import org.akaza.openclinica.config.TokenAuthentication;
-import org.akaza.openclinica.controller.helper.UserAccountHelper;
+import net.sf.json.util.JSONUtils;
 import org.akaza.openclinica.dao.core.CoreResources;
-import org.akaza.openclinica.service.Auth0User;
+import org.akaza.openclinica.dao.login.UserAccountDAO;
 import org.akaza.openclinica.service.CallbackService;
+import org.akaza.openclinica.service.CustomRuntimeException;
+import org.akaza.openclinica.service.StudyBuildService;
+import org.apache.commons.lang.StringUtils;
+import org.json.JSONObject;
+import org.keycloak.KeycloakSecurityContext;
+import org.keycloak.adapters.RefreshableKeycloakSecurityContext;
+import org.keycloak.adapters.springsecurity.token.KeycloakAuthenticationToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-
-import static org.akaza.openclinica.control.core.SecureController.USER_BEAN_NAME;
+import javax.sql.DataSource;
+import java.security.Principal;
+import java.util.Set;
 
 @SuppressWarnings("unused")
 @Controller
 public class CallbackController {
 
-    @Autowired
-    private Auth0Controller controller;
+
     @Autowired
     CallbackService callbackService;
+    @Autowired
+    KeycloakController keycloakController;
+
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
 
     private final String redirectOnFail;
     private final String redirectOnSuccess;
-    private String realm = "Protected";
+    @Autowired private DataSource dataSource;
+    @Autowired private UserAccountController userAccountController;
+    @Autowired private StudyBuildService studyBuildService;
+    @Autowired private UserAccountDAO userAccountDAO;
 
     public CallbackController() {
         this.redirectOnFail = "/error";
-        this.redirectOnSuccess = "/portal/home";
+        this.redirectOnSuccess = "/MainMenu";
     }
 
-    @RequestMapping(value = "/callback", method = RequestMethod.GET)
+    @RequestMapping(value = "/login", method = RequestMethod.GET)
     protected void getCallback(final HttpServletRequest req, final HttpServletResponse res) throws Exception {
         handle(req, res);
     }
 
-    @RequestMapping(value = "/callback", method = RequestMethod.POST, consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    @RequestMapping(value = "/login", method = RequestMethod.POST, consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     protected void postCallback(final HttpServletRequest req, final HttpServletResponse res) throws Exception {
         handle(req, res);
     }
 
     private void handle(HttpServletRequest req, HttpServletResponse res) throws Exception {
-        try {
-            String error = req.getParameter("error");
-            if (error != null && error.equals("login_required")) {
-                res.sendRedirect(controller.buildAuthorizeUrl(req, false /* don't do SSO, SSO already failed */));
-            } else {
-                Tokens tokens = controller.handle(req);
-                DecodedJWT decodedJWT = JWT.decode(tokens.getAccessToken());
-
-                TokenAuthentication tokenAuth = new TokenAuthentication(decodedJWT);
-                SecurityContextHolder.getContext().setAuthentication(tokenAuth);
-                CoreResources.setRequestSchema(req, "public");
-                req.getSession().setAttribute("accessToken", tokens.getAccessToken());
-                Auth0User user = new Auth0User(decodedJWT);
-                UserAccountHelper userAccountHelper = null;
-                try {
-                    userAccountHelper = callbackService.isCallbackSuccessful(req, user);
-                } catch (Exception e) {
-                    logger.error(e.getMessage());
-                    throw e;
-                }
-                UserAccountBean ub = userAccountHelper.getUb();
-                if (ub != null) {
-                    if (userAccountHelper.isUpdated())
-                        ub = callbackService.getUpdatedUser(ub);
-                    req.getSession().setAttribute(USER_BEAN_NAME, ub);
-                } else {
-                    unauthorized(res, "Bad credentials");
-                    return;
-                }
-                String returnTo = controller.getReturnTo(req);
-                if (returnTo == null) returnTo = this.redirectOnSuccess;
-                res.sendRedirect(returnTo);
-            }
-        } catch (InvalidRequestException e) {
-            e.printStackTrace();
-            SecurityContextHolder.clearContext();
-            res.sendRedirect(redirectOnFail);
-        } catch (IdentityVerificationException e) {
-            e.printStackTrace();
-            SecurityContextHolder.clearContext();
-            res.sendRedirect(redirectOnFail);
+        String error = req.getParameter("error");
+        if (error != null && error.equals("unauthorized")) {
+            logger.info("CallbackController In unauthorized:%%%%%%%%");
+            String smURL = CoreResources.getField("smURL");
+            int lastIndex = smURL.lastIndexOf('/');
+            String unauthURl = smURL.substring(0, lastIndex) + "/error-user-deactivated";
+            res.sendRedirect(unauthURl);
+            return;
         }
-    }
-    private void unauthorized(HttpServletResponse response, String message) throws IOException {
-        response.setHeader("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
-        response.sendError(401, message);
+        final Principal userPrincipal = req.getUserPrincipal();
+
+        if (userPrincipal == null) {
+            String authorizeUrl = keycloakController.buildAuthorizeUrl(req);
+            logger.info("CallbackController In login_required:%%%%%%%%" + authorizeUrl);
+            res.sendRedirect(authorizeUrl);
+        } else if (userPrincipal instanceof KeycloakAuthenticationToken) {
+            String ocUserUuid = null;
+            try {
+                ocUserUuid = keycloakController.getOcUserUuid(req);
+            } catch (CustomRuntimeException e) {
+                res.sendError(401, e.getMessage());
+                return;
+            }
+            String returnTo = keycloakController.getReturnTo(req);
+            String state = req.getParameter("state");
+            String param = "";
+            JSONObject jsonObject;
+            if (JSONUtils.mayBeJSON(state)) {
+                jsonObject = new JSONObject(state);
+
+                Set<String> keySet = jsonObject.keySet();
+                Object newJSON;
+                for (String key : keySet) {
+                    logger.debug(key);
+                    newJSON = jsonObject.get(key);
+
+                    if (StringUtils.isEmpty(param))
+                        param += "?";
+                    else
+                        param += "&";
+                    param += key + "=" + newJSON.toString();
+
+                }
+            }
+            if (StringUtils.isEmpty(returnTo) || StringUtils.equals(returnTo, "/OpenClinica"))
+                returnTo = this.redirectOnSuccess;
+                logger.info("CallbackController returnTo URL:%%%%%%%%" + returnTo);
+                logger.info("param:" + param);
+                res.sendRedirect(returnTo + param);
+            }
+
     }
 
-    private void unauthorized(HttpServletResponse response) throws IOException {
-        unauthorized(response, "Unauthorized");
+    public RefreshableKeycloakSecurityContext getKeycloakSecurityContext() {
+        HttpServletRequest request =
+                ((ServletRequestAttributes) RequestContextHolder
+                        .currentRequestAttributes()).getRequest();
+        if (request.getAttribute(KeycloakSecurityContext.class.getName()) != null) {
+            RefreshableKeycloakSecurityContext context = (RefreshableKeycloakSecurityContext) request.getAttribute(KeycloakSecurityContext.class.getName());
+            return context;
+        }
+        return null;
     }
-
 }

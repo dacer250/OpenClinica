@@ -35,7 +35,6 @@ import org.hibernate.annotations.Type;
 @Entity
 @Table(name = "crf_version", uniqueConstraints = @UniqueConstraint(columnNames = "oc_oid"))
 @GenericGenerator(name = "id-generator", strategy = "native", parameters = { @Parameter(name = "sequence_name", value = "crf_version_crf_version_id_seq") })
-@Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
 public class CrfVersion extends DataMapDomainObject {
 
     private int crfVersionId;
@@ -238,7 +237,7 @@ public class CrfVersion extends DataMapDomainObject {
         this.versioningMaps = versioningMaps;
     }
 
-    @OneToMany(fetch = FetchType.EAGER, mappedBy = "crfVersion")
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = "crfVersion")
     public List<EventCrf> getEventCrfs() {
         return this.eventCrfs;
     }

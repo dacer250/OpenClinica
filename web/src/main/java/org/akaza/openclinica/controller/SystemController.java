@@ -31,6 +31,8 @@ import javax.naming.directory.InitialDirContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.akaza.openclinica.bean.extract.ExtractPropertyBean;
 import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.bean.managestudy.StudyBean;
@@ -65,6 +67,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 @Controller
 @RequestMapping(value = "/auth/api/v1/system")
 @ResponseStatus(value = org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
+@Api(value = "System", tags = { "System" }, description = "REST API for System")
 public class SystemController {
 
 	// Add in Spring Cor files /healthcheck path to avoid firewall
@@ -157,6 +160,7 @@ public class SystemController {
 	 */
 
 	@RequestMapping(value = "/config", method = RequestMethod.GET)
+	@ApiOperation(value = "Get Configuration",  notes = "Retrieves System Configuration Settings")
 	public ResponseEntity<HashMap> getConfig() throws Exception {
 		ResourceBundleProvider.updateLocale(new Locale("en_US"));
 		HashMap<String, Object> map = new HashMap<>();

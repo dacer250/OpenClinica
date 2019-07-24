@@ -7,6 +7,8 @@
  */
 package org.akaza.openclinica.control.managestudy;
 
+import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
 
 import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
@@ -93,6 +95,18 @@ public class ListEventsForSubjectsServlet extends SecureController {
             // int nextLabel = getStudySubjectDAO().findTheGreatestLabel() + 1;
             // request.setAttribute("label", new Integer(nextLabel).toString());
             request.setAttribute("label", resword.getString("id_generated_Save_Add"));
+            fp.addPresetValue("label", resword.getString("id_generated_Save_Add"));
+        }
+
+        if (fp.getRequest().getParameter("subjectOverlay") == null){
+            Date today = new Date(System.currentTimeMillis());
+            String todayFormatted = local_df.format(today);
+            if (request.getAttribute(PRESET_VALUES) != null) {
+                fp.setPresetValues((HashMap)request.getAttribute(PRESET_VALUES));
+            }
+            fp.addPresetValue(AddNewSubjectServlet.INPUT_ENROLLMENT_DATE, todayFormatted);
+            fp.addPresetValue(AddNewSubjectServlet.INPUT_EVENT_START_DATE, todayFormatted);
+            setPresetValues(fp.getPresetValues());
         }
 
         // checks which module the requests are from
@@ -129,7 +143,7 @@ public class ListEventsForSubjectsServlet extends SecureController {
         request.setAttribute("defId", definitionId);
         // A. Hamid.
         // For event definitions and group class list in the add subject popup
-        request.setAttribute("allDefsArray", super.getEventDefinitionsByCurrentStudy());
+        // request.setAttribute("allDefsArray", super.getEventDefinitionsByCurrentStudy());
         request.setAttribute("studyGroupClasses", super.getStudyGroupClassesByCurrentStudy());
         FormDiscrepancyNotes discNotes = new FormDiscrepancyNotes();
         session.setAttribute(AddNewSubjectServlet.FORM_DISCREPANCY_NOTES_NAME, discNotes);

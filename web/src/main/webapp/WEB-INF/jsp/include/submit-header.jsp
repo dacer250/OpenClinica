@@ -1,7 +1,7 @@
+
 <%@ page contentType="text/html; charset=utf-8" pageEncoding="UTF-8" %>
 <%@ taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c" %>
 <%@ taglib uri="http://java.sun.com/jsp/jstl/fmt" prefix="fmt" %>
-
 
 <fmt:setBundle basename="org.akaza.openclinica.i18n.words" var="resword"/>
 <fmt:setBundle basename="org.akaza.openclinica.i18n.workflow" var="resworkflow"/>
@@ -18,32 +18,33 @@
 <head>
 
 <title><fmt:message key="openclinica" bundle="${resword}"/></title> 
-<link rel="SHORTCUT ICON" href="images/favicon.ico" type="image/x-icon" />
+<link rel="SHORTCUT ICON" href="images/favicon.png" type="image/x-icon" />
 
 
 <meta http-equiv="Content-type" content="text/html; charset=UTF-8"/>
- <meta http-equiv="X-UA-Compatible" content="IE=8" />
+<meta http-equiv="X-UA-Compatible" content="IE=11" />
 
-<link rel="stylesheet" href="includes/styles.css" type="text/css">
+
+<link rel="stylesheet" href="${pageContext.request.contextPath}/includes/styles.css" type="text/css">
 <%-- <link rel="stylesheet" href="includes/styles2.css" type="text/css">--%>
 <%-- <link rel="stylesheet" href="includes/NewNavStyles.css" type="text/css" />--%>
-<script type="text/JavaScript" language="JavaScript" src="includes/global_functions_javascript.js"></script>
-<%-- <script type="text/JavaScript" language="JavaScript" src="includes/global_functions_javascript2.js"></script> --%>
-<script type="text/JavaScript" language="JavaScript" src="includes/Tabs.js"></script>
-<%--<script type="text/JavaScript" language="JavaScript" src="includes/CalendarPopup.js"></script>--%>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/global_functions_javascript.js"></script>
+<%-- <script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/global_functions_javascript2.js"></script> --%>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/Tabs.js"></script>
+<%--<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/CalendarPopup.js"></script>--%>
 
     <!-- Added for the new Calender -->
 
     <link rel="stylesheet" type="text/css" media="all" href="includes/new_cal/skins/aqua/theme.css" title="Aqua" />
-    <script type="text/javascript" src="includes/new_cal/calendar.js"></script>
-    <script type="text/javascript" src="includes/new_cal/lang/calendar-en.js"></script>
-    <script type="text/javascript" src="includes/new_cal/lang/<fmt:message key="jscalendar_language_file" bundle="${resformat}"/>"></script>
-    <script type="text/javascript" src="includes/new_cal/calendar-setup.js"></script>
+    <script type="text/javascript" src="${pageContext.request.contextPath}/includes/new_cal/calendar.js"></script>
+    <script type="text/javascript" src="${pageContext.request.contextPath}/includes/new_cal/lang/calendar-en.js"></script>
+    <script type="text/javascript" src="${pageContext.request.contextPath}/includes/new_cal/lang/<fmt:message key="jscalendar_language_file" bundle="${resformat}"/>"></script>
+    <script type="text/javascript" src="${pageContext.request.contextPath}/includes/new_cal/calendar-setup.js"></script>
 <!-- End -->
 
-  <script type="text/JavaScript" language="JavaScript" src="includes/prototype.js"></script>
-  <script type="text/JavaScript" language="JavaScript" src="includes/scriptaculous.js?load=effects"></script>
-  <script type="text/JavaScript" language="JavaScript" src="includes/effects.js"></script>
+  <script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/prototype.js"></script>
+  <script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/scriptaculous.js?load=effects"></script>
+  <script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/effects.js"></script>
 </head>
  <%-- I removed this include because you cannot have both
  	"onLoad" tests: <jsp:include page="../include/showPopUp.jsp"/> --%>

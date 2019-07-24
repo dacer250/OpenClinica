@@ -213,7 +213,7 @@ public class TriggerService {
         StringBuffer sb = new StringBuffer();
         sb.append("<table border=\'0\' cellpadding=\'0\' cellspacing=\'0\' width=\'100%\'>");
         sb.append("<tr valign=\'top\'> <td class=\'table_header_row\'>Summary Statistics:</td> </tr> <tr valign=\'top\'>");
-        sb.append("<td class=\'table_cell_left\'>Subjects Affected: " + ssBean.getStudySubjectCount() + "</td> </tr>");
+        sb.append("<td class=\'table_cell_left\'>Participants Affected: " + ssBean.getStudySubjectCount() + "</td> </tr>");
         sb.append("<tr valign=\'top\'> <td class=\'table_cell_left\'>Total Event CRFs: " + ssBean.getEventCrfCount() + "</td> </tr> ");
         sb.append("<tr valign=\'top\'> <td class=\'table_cell_left\'>Event CRFs Available for Import: "
                 + (ssBean.getEventCrfCount() - ssBean.getSkippedCrfCount()) + "</td> </tr> ");
@@ -239,7 +239,7 @@ public class TriggerService {
         StringBuffer sb = new StringBuffer();
         sb.append("Skipped CRFs (due to import rules):<br/>");
         sb.append("<table border=\'0\' cellpadding=\'0\' cellspacing=\'0\' width=\'100%\'>");
-        sb.append("<tr valign=\'top\'> <td>Study OID :</td> <td>Study Subject OID :</td> <td>Event CRF OID:</td> <td>CRF Version OID:</td> <td>Event CRF Status:</td> </tr>");
+        sb.append("<tr valign=\'top\'> <td>Study OID :</td> <td>Participant OID :</td> <td>Event CRF OID:</td> <td>CRF Version OID:</td> <td>Event CRF Status:</td> </tr>");
 
         for (ImportCRFInfo importCrfInfo : importCRFList.getImportCRFList()) {
             String preImportStatus = "";
@@ -273,7 +273,7 @@ public class TriggerService {
         String groupRepeatKey = "1";
         sb.append("<table border=\'0\' cellpadding=\'0\' cellspacing=\'0\' width=\'100%\'>");
         for (SubjectDataBean subjectDataBean : subjectData) {
-            sb.append("<tr valign=\'top\'> <td class=\'table_header_row\' colspan=\'4\'>Study Subject: " + subjectDataBean.getSubjectOID() + "</td> </tr>");
+            sb.append("<tr valign=\'top\'> <td class=\'table_header_row\' colspan=\'4\'>Participant: " + subjectDataBean.getSubjectOID() + "</td> </tr>");
             // next step here
             ArrayList<StudyEventDataBean> studyEventDataBeans = subjectDataBean.getStudyEventData();
             for (StudyEventDataBean studyEventDataBean : studyEventDataBeans) {
@@ -399,5 +399,48 @@ public class TriggerService {
         HashMap errors = v.validate();
 
         return errors;
+    }
+    
+    public String generateHardValidationErrorMessage(ArrayList<SubjectDataBean> subjectData, HashMap<String, String> hardValidationErrors, String groupRepeatKey) {
+        StringBuffer sb = new StringBuffer();
+        String studyEventRepeatKey = null;
+        sb.append("");
+        for (SubjectDataBean subjectDataBean : subjectData) {
+            ArrayList<StudyEventDataBean> studyEventDataBeans = subjectDataBean.getStudyEventData();
+            for (StudyEventDataBean studyEventDataBean : studyEventDataBeans) {
+                studyEventRepeatKey = studyEventDataBean.getStudyEventRepeatKey();
+
+                ArrayList<FormDataBean> formDataBeans = studyEventDataBean.getFormData();
+                for (FormDataBean formDataBean : formDataBeans) {
+                    ArrayList<ImportItemGroupDataBean> itemGroupDataBeans = formDataBean.getItemGroupData();
+                    for (ImportItemGroupDataBean itemGroupDataBean : itemGroupDataBeans) {
+                        ArrayList<ImportItemDataBean> itemDataBeans = itemGroupDataBean.getItemData();
+                        for (ImportItemDataBean itemDataBean : itemDataBeans) {
+
+                            String oidKey = itemDataBean.getItemOID() + "_" + studyEventRepeatKey + "_" + groupRepeatKey + "_"
+                                    + subjectDataBean.getSubjectOID();
+                            if (hardValidationErrors.containsKey(oidKey)) {
+                                // What about event repeat ordinal and item group and item group repeat ordinal?
+                                sb.append(subjectDataBean.getSubjectOID() + "." + studyEventDataBean.getStudyEventOID());
+                                if (studyEventDataBean.getStudyEventRepeatKey() != null)
+                                    sb.append("(" + studyEventDataBean.getStudyEventRepeatKey() + ")");
+                                sb.append("." + formDataBean.getFormOID() + "." + itemGroupDataBean.getItemGroupOID());
+                                if (itemGroupDataBean.getItemGroupRepeatKey() != null)
+                                    sb.append("(" + itemGroupDataBean.getItemGroupRepeatKey() + ")");
+                                sb.append("." + itemDataBean.getItemOID());
+                                sb.append(": ");
+                                sb.append(itemDataBean.getValue() + " -- ");
+                                sb.append(hardValidationErrors.get(oidKey));
+                                sb.append("");
+                            }
+
+                        }
+                    }
+                }
+            }
+        }
+
+        sb.append("");
+        return sb.toString();
     }
 }

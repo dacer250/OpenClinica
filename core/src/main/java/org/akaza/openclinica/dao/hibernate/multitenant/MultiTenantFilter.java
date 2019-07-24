@@ -4,6 +4,7 @@ package org.akaza.openclinica.dao.hibernate.multitenant;
  * Created by yogi on 2/1/17.
  */
 
+import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.core.ExtendedBasicDataSource;
 import org.akaza.openclinica.dao.core.CoreResources;
@@ -89,9 +90,9 @@ import static org.akaza.openclinica.dao.hibernate.multitenant.CurrentTenantIdent
         switch (path) {
         case "ListStudy":
         case "ChangeStudy":
-            req.setAttribute("requestSchema", "public");
+/*            req.setAttribute("requestSchema", "public");
             tenant = "public";
-            logger.debug("Request schema is set to 'public'");
+            logger.debug("Request schema is set to 'public'");*/
             break;
         default:
             if (session == null)

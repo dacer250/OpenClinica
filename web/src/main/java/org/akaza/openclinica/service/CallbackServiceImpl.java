@@ -3,13 +3,11 @@ package org.akaza.openclinica.service;
 import org.akaza.openclinica.bean.core.UserType;
 import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.controller.UserAccountController;
-import org.akaza.openclinica.controller.helper.OCUserDTO;
 import org.akaza.openclinica.controller.helper.UserAccountHelper;
 import org.akaza.openclinica.dao.core.CoreResources;
 import org.akaza.openclinica.dao.hibernate.StudyUserRoleDao;
 import org.akaza.openclinica.dao.login.UserAccountDAO;
 import org.apache.commons.lang.StringUtils;
-import org.hibernate.query.Query;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.servlet.http.HttpServletRequest;
 import javax.sql.DataSource;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -43,11 +42,10 @@ public class CallbackServiceImpl implements CallbackService {
 
     private JsonParser objectMapper = JsonParserFactory.create();
     @Override
-    public UserAccountHelper isCallbackSuccessful(HttpServletRequest request, Auth0User user) throws Exception {
+    public UserAccountHelper isCallbackSuccessful(HttpServletRequest request,  KeycloakUser user) throws Exception {
         UserAccountDAO userAccountDAO = new UserAccountDAO(dataSource);
-        UserContext userContext = user.getUserContext();
 
-        Map<String, Object> userContextMap = userContext.contextClaim.asMap();
+        Map<String, Object> userContextMap = user.getUserContext();
         request.getSession().setAttribute("userContextMap", userContextMap);
         String userUuid = (String) userContextMap.get("userUuid");
         getUserDetails(request, user);
@@ -68,11 +66,61 @@ public class CallbackServiceImpl implements CallbackService {
         if (ub.getId() == 0) {
             ub = createUserAccount(request, user, userContextMap);
         }
-        boolean isUserUpdated = updateStudyUserRoles(request, ub, user, userContextMap);
-        return new UserAccountHelper(ub, isUserUpdated);
+        updateUser(request, ub, user, userContextMap);
+        boolean userRolesUpdated = false;
+
+        if (StringUtils.equals((String) request.getSession().getAttribute("firstLoginCheck"), "true")) {
+            userRolesUpdated = updateStudyUserRoles(request, ub);
+        } else {
+            logger.info("allUserRoles won't be updated for user:" + ub.getName());
+        }
+        return new UserAccountHelper(ub, userRolesUpdated);
     }
 
-    public void getUserDetails(HttpServletRequest request, Auth0User user) {
+    private void updateUser(HttpServletRequest request, UserAccountBean ub,
+                            KeycloakUser user, Map<String, Object> userContextMap) throws Exception {
+        boolean isUpdated = false;
+        UserType updatedUserType = null;
+        switch ((String) userContextMap.get("userType")) {
+            case "Business Admin":
+                updatedUserType = UserType.SYSADMIN;
+                break;
+            case "Tech Admin":
+                updatedUserType = UserType.TECHADMIN;
+                break;
+            case "User":
+                updatedUserType = UserType.USER;
+                break;
+            default:
+                String error = "Invalid userType:" + (String) userContextMap.get("userType");
+                logger.error(error);
+                throw new Exception(error);
+        }
+        if (ub.hasUserType(updatedUserType) != true) {
+            ub.addUserType(updatedUserType);
+            isUpdated = true;
+        }
+        if (StringUtils.equals(ub.getLastName(), user.getFamilyName()) != true) {
+            ub.setLastName(user.getFamilyName());
+            isUpdated = true;
+
+        }
+        if (StringUtils.equals(ub.getFirstName(), user.getGivenName()) != true) {
+            ub.setFirstName(user.getGivenName());
+            isUpdated = true;
+
+        }
+        if (StringUtils.equals(ub.getEmail(), user.getEmail()) != true) {
+            ub.setEmail(user.getEmail());
+            isUpdated = true;
+
+        }
+        if (isUpdated) {
+            UserAccountDAO userAccountDAO = new UserAccountDAO(dataSource);
+            userAccountDAO.update(ub);
+        }
+    }
+    public void getUserDetails(HttpServletRequest request, KeycloakUser user) {
         ResponseEntity<OCUserDTO> userDetails = studyBuildService.getUserDetails(request);
         OCUserDTO userDTO = userDetails.getBody();
         user.setEmail(userDTO.getEmail());
@@ -85,16 +133,16 @@ public class CallbackServiceImpl implements CallbackService {
     }
 
 
-    public UserContext getUserContextMap(Auth0User user)  throws Exception {
-        UserContext userContext = user.getUserContext();
+    public LinkedHashMap<String, Object> getUserContextMap(KeycloakUser user)  throws Exception {
+        LinkedHashMap<String, Object> userContext = user.getUserContext();
         return userContext;
     }
     @Modifying
-    private boolean updateStudyUserRoles(HttpServletRequest request, UserAccountBean ub, Auth0User user, Map<String, Object> userContextMap) throws Exception {
-        return studyBuildService.saveStudyEnvRoles(request, ub);
+    private boolean updateStudyUserRoles(HttpServletRequest request, UserAccountBean ub) throws Exception {
+        return studyBuildService.saveStudyEnvRoles(request, ub, true);
     }
 
-    private UserAccountBean createUserAccount(HttpServletRequest request, Auth0User user, Map<String, Object> userContextMap ) throws Exception {
+    private UserAccountBean createUserAccount(HttpServletRequest request, KeycloakUser user, Map<String, Object> userContextMap ) throws Exception {
         HashMap<String, String> map = new HashMap<>();
         map.put("username", user.getNickname());
         if (StringUtils.isNotEmpty(user.getGivenName()))
@@ -109,23 +157,7 @@ public class CallbackServiceImpl implements CallbackService {
         map.put("role_name", "Data Manager");
         map.put("user_uuid", (String) userContextMap.get("userUuid"));
         String userType = (String) userContextMap.get("userType");
-        String convertedUserType = null;
-        switch (userType) {
-        case "Business Admin":
-            convertedUserType = UserType.SYSADMIN.getName();
-            break;
-        case "Tech Admin":
-            convertedUserType = UserType.TECHADMIN.getName();
-            break;
-        case "User":
-            convertedUserType = UserType.USER.getName();
-            break;
-        default:
-            String error = "Invalid userType:" + userType;
-            logger.error(error);
-            throw new Exception(error);
-        }
-        map.put("user_type", convertedUserType);
+        map.put("user_type", userType);
         map.put("authorize_soap", "true");
         map.put("email", user.getEmail());
         map.put("institution", "OC");
@@ -133,5 +165,10 @@ public class CallbackServiceImpl implements CallbackService {
         userAccountController.createOrUpdateAccount(request, map);
         return (UserAccountBean) request.getAttribute("createdUaBean");
     }
+
+    public void updateParticipateModuleStatus(String accessToken,String studyOid){
+        studyBuildService.updateParticipateModuleStatusInOC(accessToken, studyOid);
+    }
+
 }
 

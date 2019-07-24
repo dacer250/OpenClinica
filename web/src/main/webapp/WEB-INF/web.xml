@@ -49,6 +49,15 @@
     </listener>
 
     <filter>
+        <filter-name>xssFilter</filter-name>
+        <filter-class>org.akaza.openclinica.web.filter.XSSFilter</filter-class>
+    </filter>
+    <filter-mapping>
+        <filter-name>xssFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+
+    <filter>
         <filter-name>encodingFilter</filter-name>
         <filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
         <init-param>
@@ -175,9 +184,13 @@
 
     <servlet-mapping>
         <servlet-name>pages</servlet-name>
-        <url-pattern>/oauth/*</url-pattern>
+        <url-pattern>/sso/*</url-pattern>
     </servlet-mapping>
 
+    <servlet-mapping>
+        <servlet-name>pages</servlet-name>
+        <url-pattern>/oauth/*</url-pattern>
+    </servlet-mapping>
     <servlet>
         <servlet-name>ws</servlet-name>
         <servlet-class>org.springframework.ws.transport.http.MessageDispatcherServlet</servlet-class>
@@ -527,6 +540,11 @@
         <display-name>ListCRF</display-name>
         <servlet-name>ListCRFServlet</servlet-name>
         <servlet-class>org.akaza.openclinica.control.admin.ListCRFServlet</servlet-class>
+    </servlet>
+    <servlet>
+        <display-name>NoAccess</display-name>
+        <servlet-name>NoAccessServlet</servlet-name>
+        <servlet-class>org.akaza.openclinica.control.managestudy.NoAccessServlet</servlet-class>
     </servlet>
     <servlet>
         <display-name>DefineStudyEvent</display-name>
@@ -1174,6 +1192,12 @@
         <servlet-name>ImportCRFDataServlet</servlet-name>
         <servlet-class>org.akaza.openclinica.control.submit.ImportCRFDataServlet</servlet-class>
     </servlet>
+    
+    <servlet>
+        <display-name>uploadCRFData</display-name>
+        <servlet-name>uploadCRFDataToHttpServerServlet</servlet-name>
+        <servlet-class>org.akaza.openclinica.control.submit.UploadCRFDataToHttpServerServlet</servlet-class>
+    </servlet>
 
     <servlet>
         <display-name>VerifyImportedCRFData</display-name>
@@ -1491,6 +1515,11 @@
         <servlet-name>ImportCRFDataServlet</servlet-name>
         <url-pattern>/ImportCRFData</url-pattern>
     </servlet-mapping>
+    
+      <servlet-mapping>
+        <servlet-name>uploadCRFDataToHttpServerServlet</servlet-name>
+        <url-pattern>/UploadCRFData</url-pattern>
+    </servlet-mapping>
 
     <servlet-mapping>
         <servlet-name>ViewCRFVersionPreview</servlet-name>
@@ -1678,6 +1707,10 @@
     <servlet-mapping>
         <servlet-name>ListCRFServlet</servlet-name>
         <url-pattern>/ListCRF</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>NoAccessServlet</servlet-name>
+        <url-pattern>/NoAccess</url-pattern>
     </servlet-mapping>
     <servlet-mapping>
         <servlet-name>DefineStudyEventServlet</servlet-name>
@@ -2268,5 +2301,24 @@
         <url-pattern>/rest/*</url-pattern>
     </servlet-mapping>
 
+    <servlet>
+        <display-name>AdvancedSearch</display-name>
+        <servlet-name>AdvancedSearchServlet</servlet-name>
+        <servlet-class>org.akaza.openclinica.control.managestudy.AdvancedSearchServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AdvancedSearchServlet</servlet-name>
+        <url-pattern>/ParticipantSearch</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <display-name>Jobs</display-name>
+        <servlet-name>JobsServlet</servlet-name>
+        <servlet-class>org.akaza.openclinica.control.managestudy.JobsServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>JobsServlet</servlet-name>
+        <url-pattern>/Jobs</url-pattern>
+    </servlet-mapping>
 
 </web-app>

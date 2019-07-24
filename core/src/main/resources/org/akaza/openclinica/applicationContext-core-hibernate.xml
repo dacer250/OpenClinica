@@ -22,6 +22,7 @@
         </property>
         <property name="annotatedClasses">
             <list>
+                <value>org.akaza.openclinica.dao.hibernate.CryptoConverter</value>
                 <value>org.akaza.openclinica.domain.rule.RuleSetBean</value>
                 <value>org.akaza.openclinica.domain.rule.RuleSetAuditBean</value>
                 <value>org.akaza.openclinica.domain.rule.expression.ExpressionBean</value>
@@ -57,10 +58,11 @@
                 <value>org.akaza.openclinica.domain.datamap.Study</value>
                 <value>org.akaza.openclinica.domain.user.UserAccount</value>
                 <value>org.akaza.openclinica.domain.user.UserType</value>
-                <value>org.akaza.openclinica.domain.datamap.CrfBean              </value>
+                <value>org.akaza.openclinica.domain.datamap.CrfBean</value>
                 <value>org.akaza.openclinica.domain.datamap.CompletionStatus</value>
                 <value>org.akaza.openclinica.domain.datamap.CrfVersion</value>
                 <value>org.akaza.openclinica.domain.datamap.FormLayout</value>
+                <value>org.akaza.openclinica.domain.datamap.PageLayout</value>
                 <value>org.akaza.openclinica.domain.datamap.FormLayoutMedia</value>
                 <value>org.akaza.openclinica.domain.datamap.DiscrepancyNote      </value>
                 <value>org.akaza.openclinica.domain.datamap.DiscrepancyNoteType  </value>
@@ -81,6 +83,8 @@
 
                 <value>org.akaza.openclinica.domain.datamap.EventDefinitionCrfItemTag </value>
                 <value>org.akaza.openclinica.domain.datamap.EventDefinitionCrfTag</value>
+                <value>org.akaza.openclinica.domain.datamap.EventDefinitionCrfPermissionTag</value>
+                <value>org.akaza.openclinica.domain.datamap.ArchivedDatasetFilePermissionTag</value>
 
                 <value>org.akaza.openclinica.domain.datamap.ItemDataFlag </value>
                 <value>org.akaza.openclinica.domain.datamap.EventCrfFlag   </value>
@@ -89,6 +93,7 @@
 
                 <value>org.akaza.openclinica.domain.datamap.IdtView   </value>
                 <value>org.akaza.openclinica.domain.datamap.Tag   </value>
+                <value>org.akaza.openclinica.domain.datamap.RepeatCount   </value>
 
                 <value>org.akaza.openclinica.domain.datamap.ItemDataType         </value>
                 <value>org.akaza.openclinica.domain.datamap.ItemFormMetadata      </value>
@@ -103,6 +108,8 @@
                 <value>org.akaza.openclinica.domain.datamap.StudyEventDefinition</value>
                 <value>org.akaza.openclinica.domain.datamap.StudySubject</value>
                 <value>org.akaza.openclinica.domain.datamap.Subject</value>
+                <value>org.akaza.openclinica.domain.datamap.StudySubjectDetail</value>
+                <value>org.akaza.openclinica.domain.datamap.JobDetail</value>
 
                 <!-- the following were not tested, to be remain commented as of now -->
                 <!--         <value>org.akaza.openclinica.domain.datamap.AuditEvent    </value>       -->
@@ -206,14 +213,18 @@
     <bean id="usageStatsServiceDAO" class="org.akaza.openclinica.dao.hibernate.UsageStatsServiceDAO" parent="abstractDomainDao" autowire="byName" />
     <bean id="openClinicaVersionDAO" class="org.akaza.openclinica.dao.hibernate.OpenClinicaVersionDAO" parent="abstractDomainDao" autowire="byName" />
     <bean id="crfVersionDao" class="org.akaza.openclinica.dao.hibernate.CrfVersionDao" parent="abstractDomainDao" autowire="byName" />
+    <bean id="pageLayoutDao" class="org.akaza.openclinica.dao.hibernate.PageLayoutDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="formLayoutDao" class="org.akaza.openclinica.dao.hibernate.FormLayoutDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="eventCrfDao" class="org.akaza.openclinica.dao.hibernate.EventCrfDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="eventDefinitionCrfDao" class="org.akaza.openclinica.dao.hibernate.EventDefinitionCrfDao" parent="abstractDomainDao" autowire="byName" />
+    <bean id="archivedDatasetFilePermissionTagDao" class="org.akaza.openclinica.dao.hibernate.ArchivedDatasetFilePermissionTagDao" parent="abstractDomainDao" autowire="byName" />
+    <bean id="eventDefinitionCrfPermissionTagDao" class="org.akaza.openclinica.dao.hibernate.EventDefinitionCrfPermissionTagDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="formLayoutMediaDao" class="org.akaza.openclinica.dao.hibernate.FormLayoutMediaDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="crfDao" class="org.akaza.openclinica.dao.hibernate.CrfDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="sectionDao" class="org.akaza.openclinica.dao.hibernate.SectionDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="itemGroupDao" class="org.akaza.openclinica.dao.hibernate.ItemGroupDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="itemDao" class="org.akaza.openclinica.dao.hibernate.ItemDao" parent="abstractDomainDao" autowire="byName" />
+    <bean id="repeatCountDao" class="org.akaza.openclinica.dao.hibernate.RepeatCountDao" parent="abstractDomainDao" autowire="byName" />
 
 
     <bean id="eventDefinitionCrfItemTagDao" class="org.akaza.openclinica.dao.hibernate.EventDefinitionCrfItemTagDao" parent="abstractDomainDao" autowire="byName" />
@@ -248,6 +259,8 @@
     <bean id="subjectDao" class="org.akaza.openclinica.dao.hibernate.SubjectDao" parent="abstractDomainDao" autowire="byName" />
     <bean id="SchemaServiceDao" class="org.akaza.openclinica.dao.hibernate.SchemaServiceDao" autowire="byName" />
 
+    <bean id="jobDetailDao" class="org.akaza.openclinica.dao.hibernate.JobDetailDao" parent="abstractDomainDao" autowire="byName" />
+
     <bean id="viewNotesDao" class="org.akaza.openclinica.dao.managestudy.ViewNotesDaoImpl">
         <property name="dataSource" ref="dataSource"/>
         <property name="queryStore" ref="queryStore"/>
@@ -266,4 +279,5 @@
     <bean id="userDaoDomain" class="org.akaza.openclinica.dao.hibernate.UserAccountDao" parent="abstractDomainDao" autowire="byName"/>
     <bean id="userTypeDao" class="org.akaza.openclinica.dao.hibernate.UserTypeDao" parent="abstractDomainDao" autowire="byName"/>
     <bean id="studyEventDaoDomain" class="org.akaza.openclinica.dao.hibernate.StudyEventDao" parent="abstractDomainDao" autowire="byName"></bean>
+    <bean id="cryptoConverter" class="org.akaza.openclinica.dao.hibernate.CryptoConverter" parent="abstractDomainDao" autowire="byName" />
 </beans>

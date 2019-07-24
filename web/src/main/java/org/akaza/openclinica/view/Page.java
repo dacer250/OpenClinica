@@ -37,8 +37,10 @@ public enum Page {
      */
                 MENU("/WEB-INF/jsp/menu.jsp", "Welcome to OpenClinica"),
                 MENU_SERVLET("/MainMenu", "Welcome to OpenClinica Main Servlet"),
-              
-    // YW 06-25-2007 <<
+                NO_ACCESS("/WEB-INF/jsp/noAccess.jsp", "No Access"),
+
+
+ // YW 06-25-2007 <<
     /**
      * Page for reset password when password is expired.
      */
@@ -151,7 +153,7 @@ public enum Page {
     UPDATE_STUDY7("/WEB-INF/jsp/managestudy/updateStudy7.jsp", "Update a Study seventh section"),
     UPDATE_STUDY8 ("/WEB-INF/jsp/managestudy/updateStudy8.jsp", "Update a Study last section"),
 
-     LIST_STUDY_SUBJECTS ("/WEB-INF/jsp/managestudy/findSubjects.jsp", "List Study Subjects"),
+    LIST_STUDY_SUBJECTS ("/WEB-INF/jsp/managestudy/findSubjects.jsp", "List Study Subjects"),
     LIST_STUDY_SUBJECTS_SERVLET("/ListStudySubjects", "List Study Subjects"),
 
      UPDATE_STUDY_SERVLET_NEW ("/UpdateStudyNew", "Update a Study"),
@@ -221,11 +223,6 @@ public enum Page {
      * Page for view all studies.
      */
     STUDY_LIST ("/WEB-INF/jsp/managestudy/studyList.jsp", "View All Studies"),
-
-    /**
-     * Page for view all studies.
-     */
-    STUDY_LIST_SERVLET ("/ListStudy", "View All Studies"),
 
     /**
      * Page for view all sites.
@@ -630,6 +627,12 @@ public enum Page {
     CHOOSE_DOWNLOAD_FORMAT ("/WEB-INF/jsp/submit/chooseDownloadFormat.jsp", "Choose download format"),
     LIST_SUBJECT_DISC_NOTE_SERVLET ("/ListDiscNotesSubjectServlet", "List Disc Notes Servlet"),
 
+    ADVANCED_SEARCH ("/WEB-INF/jsp/" + "managestudy/advancedSearch.jsp", "advanced search"),
+    ADVANCED_SEARCH_SERVLET ("/ParticipantSearch", "advanced search"),
+
+    JOBS ("/WEB-INF/jsp/" + "managestudy/jobs.jsp", "jobs (bulk logfile)"),
+    JOBS_SERVLET ("/Jobs", "jobs (bulk logfile)"),
+
     FILE_UPLOAD ("/WEB-INF/jsp/submit/uploadFile.jsp", "Form For File Uploading"),
     //UPLOAD_FILE_SERVLET ("/UploadFile", "Upload File"),
     DOWNLOAD_ATTACHED_FILE ("/WEB-INF/jsp/submit/downloadAttachedFile.jsp", "Download Attached File"),
@@ -651,6 +654,7 @@ public enum Page {
      MANAGE_STUDY_MODULE ( "/pages/studymodule",null),
      VIEW_SECTION_DATA_ENTRY_SERVLET_REST_URL ("/ViewSectionDataEntryRESTUrlServlet", "View Section Data Entry Servlet for REST Url call"),
      PARTICIPANT_FORM_SERVLET("/WEB-INF/jsp/submit/participantFormServlet.jsp","Participant Form Servlet"),
+     UPLOAD_CRF_DATA_TO_MIRTH ("/WEB-INF/jsp/submit/uploadFileToMirth.jsp", "Upload CRF Data To Mirth"),
      ENKETO_FORM_SERVLET("/WEB-INF/jsp/submit/enketoFormServlet.jsp","Enketo Form Servlet");
       	
   //  private final static String path = "/WEB-INF/jsp/";

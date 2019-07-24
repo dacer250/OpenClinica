@@ -151,7 +151,7 @@ public class StudySubjectServiceImpl implements StudySubjectService {
             }
             // below added 092007 tbh
             // rules updated 112007 tbh
-            if (status.equals(SubjectEventStatus.LOCKED) || status.equals(SubjectEventStatus.SKIPPED) || status.equals(SubjectEventStatus.STOPPED)) {
+            if (status.equals(SubjectEventStatus.LOCKED) || status.equals(SubjectEventStatus.SKIPPED) || status.equals(SubjectEventStatus.STOPPED) ) {
                 ecb.setStage(DataEntryStage.LOCKED);
 
                 // we need to set a SED-wide flag here, because other edcs
@@ -177,7 +177,9 @@ public class StudySubjectServiceImpl implements StudySubjectService {
                     // System.out.println("*** found a locked DEC:
                     // "+edc.getCrfName());
                 }
-                if (nonEmptyEventCrf.contains(ecb.getId())) {
+                // OC-11019 Form status does not update to complete when a form contains ONLY the participant contact info
+                // this crf has data already or determined completed by subjectEventStatus(COMPLETED)
+                if (nonEmptyEventCrf.contains(ecb.getId()) || status.equals(SubjectEventStatus.COMPLETED)) {
                     // consider an event crf started only if item data get
                     // created
                     answer.add(dec);
@@ -219,9 +221,9 @@ public class StudySubjectServiceImpl implements StudySubjectService {
         for (i = 0; i < eventCRFs.size(); i++) {
             EventCRFBean ecrf = (EventCRFBean) eventCRFs.get(i);
             int crfId = formLayoutById.get(ecrf.getFormLayoutId()).getCrfId();
-
-            if (nonEmptyEventCrf.contains(ecrf.getId())) {// this crf has data
-                                                          // already
+            // OC-11019 Form status does not update to complete when a form contains ONLY the participant contact info
+            // this crf has data already or determined completed by subjectEventStatus(COMPLETED)
+            if (nonEmptyEventCrf.contains(ecrf.getId()) || status.equals(SubjectEventStatus.COMPLETED)) {
                 completed.put(new Integer(crfId), Boolean.TRUE);
             } else {// event crf got created, but no data entered
                 startedButIncompleted.put(new Integer(crfId), ecrf);

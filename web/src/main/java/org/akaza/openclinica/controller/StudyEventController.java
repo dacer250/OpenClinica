@@ -1,70 +1,119 @@
 package org.akaza.openclinica.controller;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import javax.servlet.http.HttpServletRequest;
 
-import org.akaza.openclinica.dao.hibernate.EventCrfDao;
-import org.akaza.openclinica.dao.hibernate.EventDefinitionCrfDao;
-import org.akaza.openclinica.dao.hibernate.StudyEventDao;
-import org.akaza.openclinica.dao.hibernate.StudyEventDefinitionDao;
-import org.akaza.openclinica.dao.hibernate.StudyParameterValueDao;
-import org.akaza.openclinica.dao.hibernate.StudySubjectDao;
-import org.akaza.openclinica.domain.Status;
-import org.akaza.openclinica.domain.datamap.EventCrf;
-import org.akaza.openclinica.domain.datamap.EventDefinitionCrf;
-import org.akaza.openclinica.domain.datamap.Study;
-import org.akaza.openclinica.domain.datamap.StudyEvent;
-import org.akaza.openclinica.domain.datamap.StudyEventDefinition;
-import org.akaza.openclinica.domain.datamap.StudyParameterValue;
-import org.akaza.openclinica.domain.datamap.StudySubject;
-import org.akaza.openclinica.patterns.ocobserver.StudyEventChangeDetails;
-import org.akaza.openclinica.patterns.ocobserver.StudyEventContainer;
-import org.akaza.openclinica.service.pmanage.ParticipantPortalRegistrar;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.ApiResponse;
+import io.swagger.annotations.ApiResponses;
+
+import org.akaza.openclinica.bean.login.RestReponseDTO;
+import org.akaza.openclinica.bean.login.StudyUserRoleBean;
+import org.akaza.openclinica.bean.login.UserAccountBean;
+import org.akaza.openclinica.bean.managestudy.StudyBean;
+import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
+import org.akaza.openclinica.bean.submit.crfdata.ODMContainer;
+import org.akaza.openclinica.controller.dto.*;
+import org.akaza.openclinica.controller.helper.RestfulServiceHelper;
+import org.akaza.openclinica.dao.core.CoreResources;
+import org.akaza.openclinica.dao.hibernate.*;
+import org.akaza.openclinica.dao.managestudy.StudySubjectDAO;
+import org.akaza.openclinica.domain.datamap.*;
+import org.akaza.openclinica.domain.enumsupport.JobType;
+import org.akaza.openclinica.domain.user.UserAccount;
+import org.akaza.openclinica.exception.OpenClinicaSystemException;
+import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
+import org.akaza.openclinica.service.*;
+import org.akaza.openclinica.service.crfdata.ErrorObj;
+import org.akaza.openclinica.service.rest.errors.ParameterizedErrorVM;
+import org.akaza.openclinica.web.restful.errors.ErrorConstants;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.lang.exception.ExceptionUtils;
+import org.apache.commons.collections4.map.PassiveExpiringMap;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
+
 
 @Controller
-@RequestMapping(value = "/auth/api/v1/studyevent")
+@RequestMapping( value = "/auth/api" )
+@Api( value = "Study Event", tags = {"Study Event"}, description = "REST API for Study Event" )
 public class StudyEventController {
 
 	@Autowired
-	@Qualifier("dataSource")
-	private BasicDataSource dataSource;
-	
-	@Autowired
-    private EventCrfDao eventCrfDao;
-	
-	@Autowired
-    private StudyEventDao studyEventDao;
+	private ParticipateService participateService;
 
 	@Autowired
-    private StudySubjectDao studySubjectDao;
+	@Qualifier( "dataSource" )
+	private BasicDataSource dataSource;
+
+	@Autowired
+	private EventCrfDao eventCrfDao;
+
+	@Autowired
+	private StudyEventDao studyEventDao;
+
+	@Autowired
+	private StudySubjectDao studySubjectDao;
+
+	@Autowired
+	private UserAccountDao userAccountDao;
+
+	@Autowired
+	private StudyDao studyDao;
 
 	@Autowired
 	private StudyEventDefinitionDao studyEventDefinitionDao;
-	
-	@Autowired
-    private EventDefinitionCrfDao eventDefinitionCrfDao;
-	
-	@Autowired
-	private StudyParameterValueDao studyParameterValueDao;
-	
-	protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
 
+	@Autowired
+	private EventDefinitionCrfDao eventDefinitionCrfDao;
+	private RestfulServiceHelper restfulServiceHelper;
+
+	@Autowired
+	private StudyEventService studyEventService;
+
+	@Autowired
+	private CSVService csvService;
+
+	@Autowired
+	private UserService userService;
+
+	@Autowired
+	private UtilService utilService;
+
+	@Autowired
+	private ValidateService validateService;
+
+	PassiveExpiringMap<String, Future<ResponseEntity<Object>>> expiringMap =
+			new PassiveExpiringMap<>(24, TimeUnit.HOURS);
+
+	protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
+	public static final String DASH = "-";
+	public static final String FILE_HEADER_MAPPING = "ParticipantID, StudyEventOID, Ordinal, StartDate, EndDate";
+	public static final String SEPERATOR = ",";
+	public static final String CREATE = "create";
+	public static final String UPDATE = "update";
 
 	/**
 	 * @api {put} /pages/auth/api/v1/studyevent/studysubject/{studySubjectOid}/studyevent/{studyEventDefOid}/ordinal/{ordinal}/complete Complete a Participant Event
@@ -78,111 +127,346 @@ public class StudyEventController {
 	 * @apiHeader {String} api_key Users unique access-key.
 	 * @apiDescription Completes a participant study event.
 	 * @apiErrorExample {json} Error-Response:
-	 *                  HTTP/1.1 403 Forbidden
-	 *                  {
-	 *                  "code": "403",
-	 *                  "message": "Request Denied.  Operation not allowed."
-	 *                  }
+	 * HTTP/1.1 403 Forbidden
+	 * {
+	 * "code": "403",
+	 * "message": "Request Denied.  Operation not allowed."
+	 * }
 	 * @apiSuccessExample {json} Success-Response:
-	 *                    HTTP/1.1 200 OK
-	 *                    {
-	 *                    "code": "200",
-	 *                    "message": "Success."
-	 *                    }
+	 * HTTP/1.1 200 OK
+	 * {
+	 * "code": "200",
+	 * "message": "Success."
+	 * }
 	 */
-	@RequestMapping(value = "/studysubject/{studySubjectOid}/studyevent/{studyEventDefOid}/ordinal/{ordinal}/complete", method = RequestMethod.PUT)
-	public @ResponseBody Map<String,String> completeParticipantEvent(HttpServletRequest request, @PathVariable("studySubjectOid") String studySubjectOid, 
-			@PathVariable("studyEventDefOid") String studyEventDefOid,
-			@PathVariable("ordinal") Integer ordinal)
+	@RequestMapping( value = "/studyevent/{studyEventDefOid}/ordinal/{ordinal}/complete", method = RequestMethod.PUT )
+	public @ResponseBody
+	Map<String, String> completeParticipantEvent(HttpServletRequest request, @PathVariable( "studyEventDefOid" ) String studyEventDefOid,
+												 @PathVariable( "ordinal" ) Integer ordinal)
 			throws Exception {
-		
-		StudySubject subject = studySubjectDao.findByOcOID(studySubjectOid);
-		StudyEvent studyEvent = studyEventDao.fetchByStudyEventDefOIDAndOrdinal(studyEventDefOid, ordinal, subject.getStudySubjectId());
+		String studyOid = (String) request.getSession().getAttribute("studyOid");
+		UserAccountBean ub = (UserAccountBean) request.getSession().getAttribute("userBean");
+
+		getRestfulServiceHelper().setSchema(studyOid, request);
+		ResourceBundleProvider.updateLocale(new Locale("en_US"));
+		if (ub == null) {
+			logger.info("userAccount is null");
+			return null;
+		}
+		StudyBean currentStudy = participateService.getStudy(studyOid);
+		StudySubjectDAO studySubjectDAO = new StudySubjectDAO(dataSource);
+
+		String userName = ub.getName();
+		int lastIndexOfDot = userName.lastIndexOf(".");
+		String subjectOid = userName.substring(lastIndexOfDot + 1);
+		StudySubjectBean studySubject = studySubjectDAO.findByOid(subjectOid);
+
+		StudyEvent studyEvent = studyEventDao.fetchByStudyEventDefOIDAndOrdinal(studyEventDefOid, ordinal, studySubject.getId());
 		StudyEventDefinition studyEventDefinition = studyEventDefinitionDao.findByStudyEventDefinitionId(studyEvent.getStudyEventDefinition().getStudyEventDefinitionId());
 		Study study = studyEventDefinition.getStudy();
-		Map<String,String> response = new HashMap<String,String>();
-		
+		Map<String, String> response = new HashMap<String, String>();
+
 		// Verify this request is allowed.
-		if (!mayProceed(study)) {
+		if (!participateService.mayProceed(study.getOc_oid())) {
 			response.put("code", String.valueOf(HttpStatus.FORBIDDEN.value()));
 			response.put("message", "Request Denied.  Operation not allowed.");
 			return response;
 		}
-				
+
 		// Get list of eventCRFs
 		// By this point we can assume all Participant forms have been submitted at least once and have an event_crf entry.
 		// Non-Participant forms may not have an entry.
 		List<EventDefinitionCrf> eventDefCrfs = eventDefinitionCrfDao.findByStudyEventDefinitionId(studyEventDefinition.getStudyEventDefinitionId());
-		List<EventCrf> eventCrfs = eventCrfDao.findByStudyEventIdStudySubjectId(studyEvent.getStudyEventId(), studySubjectOid);
-		
-		
-        try {
-            completeData(studyEvent, eventDefCrfs, eventCrfs);
-        } catch (Exception e) {
-            // Transaction has been rolled back due to an exception.
-            logger.error("Error encountered while completing Study Event: " + e.getMessage());
-            logger.error(ExceptionUtils.getStackTrace(e));
+		List<EventCrf> eventCrfs = eventCrfDao.findByStudyEventIdStudySubjectId(studyEvent.getStudyEventId(), studySubject.getOid());
 
-            response.put("code", String.valueOf(HttpStatus.INTERNAL_SERVER_ERROR.value()));
+
+		try {
+			participateService.completeData(studyEvent, eventDefCrfs, eventCrfs);
+		} catch (Exception e) {
+			// Transaction has been rolled back due to an exception.
+			logger.error("Error encountered while completing Study Event: " + e.getMessage());
+			logger.error(ExceptionUtils.getStackTrace(e));
+
+			response.put("code", String.valueOf(HttpStatus.INTERNAL_SERVER_ERROR.value()));
 			response.put("message", "Error encountered while completing participant event.");
 			return response;
 
-        }
+		}
 
-		
-		response.put("code",  String.valueOf(HttpStatus.OK.value()));
+
+		response.put("code", String.valueOf(HttpStatus.OK.value()));
 		response.put("message", "Success.");
 		return response;
 		//return new ResponseEntity<String>("<message>Success</message>", org.springframework.http.HttpStatus.OK);
 
 	}
 
-	@Transactional
-    private void completeData(StudyEvent studyEvent, List<EventDefinitionCrf> eventDefCrfs, List<EventCrf> eventCrfs) throws Exception{
-		boolean completeStudyEvent = true;
-		
-		// Loop thru event CRFs and complete all that are participant events.
-		for (EventDefinitionCrf eventDefCrf:eventDefCrfs) {
-			boolean foundEventCrfMatch = false;
-			for (EventCrf eventCrf:eventCrfs) {
-				if (eventDefCrf.getCrf().getCrfId() == eventCrf.getCrfVersion().getCrf().getCrfId()) {
-					foundEventCrfMatch = true;
-					if (eventDefCrf.getParicipantForm()) {
-						eventCrf.setStatusId(Status.UNAVAILABLE.getCode());
-						eventCrfDao.saveOrUpdate(eventCrf);					
-					} else if (eventCrf.getStatusId() != Status.UNAVAILABLE.getCode()) completeStudyEvent = false;
-				}
-			}
-			if (!foundEventCrfMatch && !eventDefCrf.getParicipantForm()) completeStudyEvent = false;
+	public RestfulServiceHelper getRestfulServiceHelper() {
+		if (restfulServiceHelper == null) {
+			restfulServiceHelper = new RestfulServiceHelper(this.dataSource);
 		}
-		
-		// Complete study event only if there are no uncompleted, non-participant forms.
-		if (completeStudyEvent) {
-			studyEvent.setSubjectEventStatusId(4);
-            StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(true,false);
-            StudyEventContainer container = new StudyEventContainer(studyEvent,changeDetails);
-			studyEventDao.saveOrUpdateTransactional(container);
-		}
-		
-		
+		return restfulServiceHelper;
 	}
 
-	private boolean mayProceed(Study study) throws Exception {
-        boolean accessPermission = false;
 
-        StudyParameterValue pStatus = studyParameterValueDao.findByStudyIdParameter(study.getStudyId(), "participantPortal");
-        ParticipantPortalRegistrar participantPortalRegistrar = new ParticipantPortalRegistrar();
-        String pManageStatus = participantPortalRegistrar.getRegistrationStatus(study.getOc_oid()).toString(); // ACTIVE,PENDING,INACTIVE
-        String participateStatus = pStatus.getValue().toString(); // enabled , disabled
-        String studyStatus = study.getStatus().getName().toString(); // available , pending , frozen , locked
-        logger.info("pManageStatus: " + pManageStatus + "  participantStatus: " + participateStatus + "   studyStatus: " + studyStatus);
-        System.out.println("pManageStatus: " + pManageStatus + "  participantStatus: " + participateStatus + "   studyStatus: " + studyStatus);
-        if (participateStatus.equalsIgnoreCase("enabled") && studyStatus.equalsIgnoreCase("available") && pManageStatus.equalsIgnoreCase("ACTIVE")) {
-            accessPermission = true;
-        }
+	private ResponseEntity checkFileFormat(MultipartFile file) {
+		ResponseEntity response = null;
+		RestReponseDTO responseDTO = new RestReponseDTO();
+		String finalMsg = null;
 
-        return accessPermission;
-    }
+		//only support csv file
+		if (file != null && file.getSize() > 0) {
+			String fileNm = file.getOriginalFilename();
+
+			if (fileNm != null && fileNm.endsWith(".csv")) {
+				String line;
+				BufferedReader reader;
+				InputStream is;
+				try {
+					is = file.getInputStream();
+					reader = new BufferedReader(new InputStreamReader(is));
+					CSVFormat csvFileFormat = CSVFormat.DEFAULT.withHeader(FILE_HEADER_MAPPING).withFirstRecordAsHeader().withTrim();
+
+					CSVParser csvParser = new CSVParser(reader, csvFileFormat);
+					csvParser.parse(reader, csvFileFormat);
+				} catch (Exception e) {
+					finalMsg = ErrorConstants.ERR_NOT_CSV_FILE + ":The file format is not supported, please use correct CSV file, like *.csv ";
+					responseDTO.setMessage(finalMsg);
+					response = new ResponseEntity(responseDTO, org.springframework.http.HttpStatus.BAD_REQUEST);
+				}
+
+			} else {
+				finalMsg = ErrorConstants.ERR_NOT_CSV_FILE + ":The file format is not supported, please use correct CSV file, like *.csv ";
+				responseDTO.setMessage(finalMsg);
+				response = new ResponseEntity(responseDTO, org.springframework.http.HttpStatus.BAD_REQUEST);
+			}
+
+
+		} else {
+			finalMsg = ErrorConstants.ERR_BLANK_FILE + ":The file null or blank";
+			responseDTO.setMessage(finalMsg);
+			response = new ResponseEntity(responseDTO, org.springframework.http.HttpStatus.BAD_REQUEST);
+		}
+
+		return response;
+	}
+
+
+
+
+
+	@ApiOperation( value = "To check schedule job status with job ID", notes = " the job ID is included in the response when you run bulk schedule task",hidden = true )
+	@SuppressWarnings( "unchecked" )
+	@RequestMapping( value = "/scheduleJobs/{uuid}", method = RequestMethod.GET )
+	public ResponseEntity<Object> checkScheduleStatus(@PathVariable( "uuid" ) String scheduleUuid,
+													  HttpServletRequest request) {
+
+		Future<ResponseEntity<Object>> future = null;
+		synchronized (expiringMap) {
+			future = expiringMap.get(scheduleUuid);
+		}
+		if (future == null) {
+			logger.info("Schedule Future :" + scheduleUuid + " couldn't be found");
+			return new ResponseEntity<>("Schedule Future :" + scheduleUuid + " couldn't be found", HttpStatus.BAD_REQUEST);
+		} else if (future.isDone()) {
+			try {
+				ResponseEntity<Object> objectResponseEntity = future.get();
+				return new ResponseEntity<>("Completed", HttpStatus.OK);
+			} catch (InterruptedException e) {
+				logger.error("Error " + e.getMessage());
+				return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+			} catch (CustomRuntimeException e) {
+
+				return new ResponseEntity<>(e.getErrList(), HttpStatus.BAD_REQUEST);
+			} catch (ExecutionException e) {
+				Throwable cause = e.getCause();
+				if (cause != null && cause instanceof CustomRuntimeException) {
+
+					return new ResponseEntity<>(((CustomRuntimeException) cause).getErrList(), HttpStatus.BAD_REQUEST);
+				} else {
+					List<ErrorObj> err = new ArrayList<>();
+					ErrorObj errorObj = new ErrorObj(e.getMessage(), e.getMessage());
+					err.add(errorObj);
+					logger.error("Error " + e.getMessage());
+
+					return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
+				}
+			}
+		} else {
+			return new ResponseEntity<>(HttpStatus.PROCESSING.getReasonPhrase(), HttpStatus.OK);
+		}
+
+	}
+
+
+	@ApiOperation( value = "To schedule an event for participants at site level in bulk", notes = "Will read the information of SudyOID,ParticipantID, StudyEventOID, Ordinal, Start Date, End Date" )
+	@ApiResponses( value = {
+			@ApiResponse( code = 200, message = "Successful operation" ),
+			@ApiResponse( code = 400, message = "Bad Request -- Normally means Found validation errors, for detail please see the error list: <br /> " )} )
+	@RequestMapping( value = "clinicaldata/studies/{studyOID}/sites/{siteOID}/events/bulk", method = RequestMethod.POST, consumes = {"multipart/form-data"} )
+	public ResponseEntity<Object> bulkSheduleEventAtSiteLevel(HttpServletRequest request,
+															  MultipartFile file,
+															  @PathVariable( "studyOID" ) String studyOid,
+															  @PathVariable( "siteOID" ) String siteOid) throws Exception {
+
+		ResponseEntity response = null;
+		utilService.setSchemaFromStudyOid(studyOid);
+		String schema = CoreResources.getRequestSchema();
+		UserAccountBean userAccountBean = utilService.getUserAccountFromRequest(request);
+
+		Study site = studyDao.findByOcOID(siteOid.trim());
+		Study study = studyDao.findByOcOID(studyOid.trim());
+
+		try {
+			checkFileFormat(file);
+			validateStudyAndRoles(studyOid, siteOid, userAccountBean);
+			csvService.validateCSVFileHeader( file, study.getOc_oid(), siteOid);
+
+		} catch (OpenClinicaSystemException e) {
+			return getResponseForException(e, studyOid, siteOid);
+		}
+
+
+		UserAccount userAccount = userAccountDao.findById(userAccountBean.getId());
+		String uuid = startBulkEventJob(file, schema, studyOid, siteOid, userAccountBean);
+
+		logger.info("REST request to Import Job uuid {} ", uuid);
+		return new ResponseEntity<Object>("job uuid: " + uuid, HttpStatus.OK);
+
+
+
+
+	}
+
+
+	@ApiOperation( value = "To schedule an event for participant at site level", notes = "Will read the information of SudyOID,ParticipantID, StudyEventOID, Ordinal, Start Date, End Date" )
+	@RequestMapping( value = "clinicaldata/studies/{studyOID}/sites/{siteOID}/events", method = RequestMethod.POST )
+	public ResponseEntity<Object> scheduleEventAtSiteLevel(HttpServletRequest request,
+														   @RequestBody StudyEventScheduleRequestDTO studyEventScheduleRequestDTO,
+														   @PathVariable( "studyOID" ) String studyOid,
+														   @PathVariable( "siteOID" ) String siteOid) throws Exception {
+
+		utilService.setSchemaFromStudyOid(studyOid);
+		UserAccountBean userAccountBean = utilService.getUserAccountFromRequest(request);
+
+		try {
+			validateStudyAndRoles(studyOid, siteOid, userAccountBean);
+		} catch (OpenClinicaSystemException e) {
+			return getResponseForException(e, studyOid, siteOid);
+		}
+
+		ODMContainer odmContainer = new ODMContainer();
+		studyEventService.populateOdmContainerForEventSchedule(odmContainer, studyEventScheduleRequestDTO, siteOid);
+		Object result = studyEventService.studyEventProcess(odmContainer, studyOid, siteOid, userAccountBean, CREATE);
+		try {
+			if (result instanceof ErrorObj)
+				throw new OpenClinicaSystemException(((ErrorObj) result).getMessage());
+			else if (result instanceof StudyEventResponseDTO)
+				return new ResponseEntity<Object>(result, HttpStatus.OK);
+		} catch (OpenClinicaSystemException e) {
+			return getResponseForException(e, studyOid, siteOid);
+		}
+		return null;
+	}
+
+	@ApiOperation( value = "To Update an event for participant at site level", notes = "Will read the information of SudyOID,ParticipantID, StudyEventOID, Ordinal, Start Date, End Date , Event Repeat Key , Event Status" )
+	@RequestMapping( value = "clinicaldata/studies/{studyOID}/sites/{siteOID}/events", method = RequestMethod.PUT )
+	public ResponseEntity<Object> updateEventAtSiteLevel(HttpServletRequest request,
+														 @RequestBody StudyEventUpdateRequestDTO studyEventUpdateRequestDTO,
+														 @PathVariable( "studyOID" ) String studyOid,
+														 @PathVariable( "siteOID" ) String siteOid) throws Exception {
+
+		utilService.setSchemaFromStudyOid(studyOid);
+		UserAccountBean userAccountBean = utilService.getUserAccountFromRequest(request);
+
+		try {
+			validateStudyAndRoles(studyOid, siteOid, userAccountBean);
+		} catch (OpenClinicaSystemException e) {
+			return getResponseForException(e, studyOid, siteOid);
+		}
+
+		ODMContainer odmContainer = new ODMContainer();
+		studyEventService.populateOdmContainerForEventUpdate(odmContainer, studyEventUpdateRequestDTO, siteOid);
+		Object result = studyEventService.studyEventProcess(odmContainer, studyOid, siteOid, userAccountBean, UPDATE);
+
+		try {
+			if (result instanceof ErrorObj)
+				throw new OpenClinicaSystemException(((ErrorObj) result).getMessage());
+			else if (result instanceof StudyEventResponseDTO)
+				return new ResponseEntity<Object>(result, HttpStatus.OK);
+		} catch (OpenClinicaSystemException e) {
+			return getResponseForException(e, studyOid, siteOid);
+		}
+		return null;
+	}
+
+	private void validateStudyAndRoles(String studyOid, String siteOid, UserAccountBean userAccountBean) {
+
+		ArrayList<StudyUserRoleBean> userRoles = userAccountBean.getRoles();
+		if (studyOid != null)
+			studyOid = studyOid.toUpperCase();
+		if (siteOid != null)
+			siteOid = siteOid.toUpperCase();
+
+
+		if (!validateService.isStudyOidValid(studyOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_STUDY_NOT_EXIST);
+		}
+		if (!validateService.isStudyOidValidStudyLevelOid(studyOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_STUDY_NOT_Valid_OID);
+		}
+		if (!validateService.isSiteOidValid(siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_SITE_NOT_EXIST);
+		}
+		if (!validateService.isSiteOidValidSiteLevelOid(siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_SITE_NOT_Valid_OID);
+		}
+		if (!validateService.isStudyAvailable(studyOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_STUDY_NOT_AVAILABLE);
+		}
+		if (siteOid != null && !validateService.isStudyAvailable(siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_SITE_NOT_AVAILABLE);
+		}
+		if (!validateService.isStudyToSiteRelationValid(studyOid, siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_STUDY_TO_SITE_NOT_Valid_OID);
+		}
+
+		if (!validateService.isUserHasAccessToStudy(userRoles, studyOid) && !validateService.isUserHasAccessToSite(userRoles, siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_NO_ROLE_SETUP);
+		} else if (!validateService.isUserHas_CRC_INV_DM_DEP_DS_RoleInSite(userRoles, siteOid)) {
+			throw new OpenClinicaSystemException(ErrorConstants.ERR_NO_SUFFICIENT_PRIVILEGES);
+		}
+
+	}
+
+
+	private ResponseEntity<Object> getResponseForException(OpenClinicaSystemException e, String studyOid, String siteOid) {
+		String errorMsg = e.getErrorCode();
+		HashMap<String, String> map = new HashMap<>();
+		map.put("studyOid", studyOid);
+		map.put("siteOid", siteOid);
+		org.akaza.openclinica.service.rest.errors.ParameterizedErrorVM responseDTO = new ParameterizedErrorVM(errorMsg, map);
+		return new ResponseEntity(responseDTO, HttpStatus.BAD_REQUEST);
+	}
+
+	public String startBulkEventJob(MultipartFile file, String schema, String studyOid, String siteOid, UserAccountBean userAccountBean) {
+		utilService.setSchemaFromStudyOid(studyOid);
+
+		Study site = studyDao.findByOcOID(siteOid);
+		Study study = studyDao.findByOcOID(studyOid);
+		UserAccount userAccount = userAccountDao.findById(userAccountBean.getId());
+		JobDetail jobDetail = userService.persistJobCreated(study, site, userAccount, JobType.SCHEDULE_EVENT, file.getOriginalFilename());
+		CompletableFuture<Object> future = CompletableFuture.supplyAsync(() -> {
+			try {
+				studyEventService.scheduleOrUpdateBulkEvent(file, study, siteOid, userAccountBean, jobDetail, schema);
+			} catch (Exception e) {
+				logger.error("Exception is thrown while processing dataImport: " + e);
+			}
+			return null;
+
+		});
+		return jobDetail.getUuid();
+	}
 }
 
 

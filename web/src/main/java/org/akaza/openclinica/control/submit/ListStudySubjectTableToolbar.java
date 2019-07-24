@@ -1,5 +1,6 @@
 package org.akaza.openclinica.control.submit;
 
+import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
 import org.akaza.openclinica.bean.managestudy.StudyGroupClassBean;
 import org.akaza.openclinica.control.DefaultToolbar;
@@ -22,14 +23,17 @@ public class ListStudySubjectTableToolbar extends DefaultToolbar {
     private final ArrayList<StudyGroupClassBean> studyGroupClasses;
     private final boolean addSubjectLinkShow;
     private ResourceBundle reswords = ResourceBundleProvider.getWordsBundle();
+    private String participateModuleStatus;
+    private final String ENABLED = "enabled";
 
     public ListStudySubjectTableToolbar(ArrayList<StudyEventDefinitionBean> studyEventDefinitions, ArrayList<StudyGroupClassBean> studyGroupClasses,
-            boolean addSubjectLinkShow, boolean showMoreLink) {
+            boolean addSubjectLinkShow, boolean showMoreLink , String participateModuleStatus) {
         super();
         this.studyEventDefinitions = studyEventDefinitions;
         this.studyGroupClasses = studyGroupClasses;
         this.addSubjectLinkShow = addSubjectLinkShow;
         this.showMoreLink = showMoreLink;
+        this.participateModuleStatus=participateModuleStatus;
     }
 
     @Override
@@ -101,9 +105,12 @@ public class ListStudySubjectTableToolbar extends DefaultToolbar {
          *      java.util.Locale)
          */
         String getIndexes() {
-            String result = "1,2,3,4,5";
+            String result = "1,2,3";
+            if(participateModuleStatus.equals(ENABLED))
+                 result = "1,2,3,4";
+
             for (int i = 0; i < studyGroupClasses.size(); i++) {
-                result += "," + (5 + i + 1);
+                result += "," + (4 + i + 1);
             }
             return result;
         }
@@ -121,8 +128,9 @@ public class ListStudySubjectTableToolbar extends DefaultToolbar {
         @Override
         public String enabled() {
             String js =
-                "var selectedValue = document.getElementById('sedDropDown').options[document.getElementById('sedDropDown').selectedIndex].value;  "
-                    + " if (selectedValue != null  ) { " + "window.location='ListEventsForSubjects?module=submit&defId=' + selectedValue;" + " } ";
+                "var selectedValue = document.getElementById('sedDropDown').options[document.getElementById('sedDropDown').selectedIndex].value; "
+                    + " var maxrows = $('select[name=maxRows]').val();"
+                    + " if (selectedValue != null  ) { " + "window.location='ListEventsForSubjects?module=submit&defId=' + selectedValue + '&listEventsForSubject_mr_=' + maxrows;" + " } ";
             HtmlBuilder html = new HtmlBuilder();
             html.select().id("sedDropDown").onchange(js).close();
             html.option().close().append(reswords.getString("select_an_event")).optionEnd();

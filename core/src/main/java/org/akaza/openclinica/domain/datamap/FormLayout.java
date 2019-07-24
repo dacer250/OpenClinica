@@ -35,7 +35,6 @@ import org.hibernate.annotations.Type;
 @Entity
 @Table(name = "form_layout", uniqueConstraints = @UniqueConstraint(columnNames = "oc_oid"))
 @GenericGenerator(name = "id-generator", strategy = "native", parameters = { @Parameter(name = "sequence_name", value = "form_layout_form_layout_id_seq") })
-@Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
 public class FormLayout extends DataMapDomainObject {
 
     private int formLayoutId;
@@ -57,6 +56,7 @@ public class FormLayout extends DataMapDomainObject {
     private Set decisionConditions = new HashSet(0);
     private List<FileItem> fileItems;
     private List<VersioningMap> versioningMaps;
+    private String externalInstance;
 
     public FormLayout() {
     }
@@ -216,7 +216,7 @@ public class FormLayout extends DataMapDomainObject {
         this.xformName = xformName;
     }
 
-    @OneToMany(fetch = FetchType.EAGER, mappedBy = "formLayout")
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = "formLayout")
     public List<EventCrf> getEventCrfs() {
         return this.eventCrfs;
     }
@@ -250,6 +250,15 @@ public class FormLayout extends DataMapDomainObject {
 
     public void setVersioningMaps(List<VersioningMap> versioningMaps) {
         this.versioningMaps = versioningMaps;
+    }
+
+    @Column(name = "external_instance")
+    public String getExternalInstance() {
+        return externalInstance;
+    }
+
+    public void setExternalInstance(String externalInstance) {
+        this.externalInstance = externalInstance;
     }
 
 }

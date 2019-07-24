@@ -1,6 +1,25 @@
 /* Load web fonts */
-@import url("https://fonts.googleapis.com/css?family=Didact+Gothic|Open+Sans+Condensed:300,700|Open+Sans:400,400i,600,700,700i");
-@import url("fonts/icomoon.woff");
+@import url("//fonts.googleapis.com/css?family=Didact+Gothic|Open+Sans+Condensed:300,700|Open+Sans:400,400i,600,700,700i");
+@import url("//cdn.rawgit.com/OpenClinica/OpenClinica/bc369c40582a7a4e8b27537677d4abe488069333/web/src/main/webapp/includes/fonts/icomoon.woff?37gwv7");
+@font-face {
+  font-family: 'Courier Prime Code';
+  src:  url('fonts/courier-prime-code.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Courier Prime Code';
+  src:  url('fonts/courier-prime-code-italic.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'view-query-within';
+  src:  url('fonts/view-query-within.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 html {
   box-sizing: border-box; }
 
@@ -22,9 +41,17 @@ input[type="text"], input[type="password"] {
   float: left;
   height: auto;
   min-height: 30px;
-  padding: .25em; }
-  input[type="text"].navSearch, input[type="password"].navSearch {
-    width: 13em; }
+  padding: .25em;
+}
+input[type="text"].navSearch, input[type="password"].navSearch {
+  width: 13em;
+}
+input.navSearch::placeholder {
+  color: #999;
+}
+#advsearch-link {
+  margin-left: 10px;
+}
 
 input[type="submit"], input[type="button"] {
   -webkit-appearance: none; }
@@ -54,20 +81,23 @@ input[type="submit"], input[type="button"] {
   border: 0;
   min-height: 30px;
   font-size: 1em;
-  padding-left: .75em; }
-  .navSearchButton:hover {
-    background: #20354a; }
+  padding-left: .75em;
+  padding-right: .75em;
+}
+.navSearchButton:hover {
+  background: #20354a;
+}
 
 body {
   font-size: 100%;
   font-family: 'Open Sans', Helvetica, Arial, sans-serif;
   margin: 0;
   width: 100% !important;
-  overflow: auto; 
+  overflow: auto;
   }
   body > table {
     margin: 0 auto;
-    min-width: 1024px; 
+    min-width: 1024px;
   }
 
 p, ul, ol, td, th {
@@ -156,6 +186,11 @@ a:hover {
   background: rgba(0, 0, 0, 0.075);
   background-size: contain; }
 
+.icon-view-within:before {
+  font-family: 'view-query-within' !important;
+  content: '\e900';
+}
+
 .disabled {
   opacity: .4; }
 
@@ -208,7 +243,7 @@ a:hover {
   .status-tag.status-test {
     background-color: #ED7800; }
   .status-tag.status-prod {
-    background-color: #06C279; }
+    background-color: #ED7800; }
 
 .logo {
   display: inline-block;
@@ -255,7 +290,8 @@ a:hover {
 
 .taskLeftColumn,
 .taskRightColumn {
-  width: 50%; }
+  width: 50%;
+}
 
 /* layout */
 .aka_revised_content table[width="525"] {
@@ -333,7 +369,9 @@ a:hover {
   display: inline-block;
   margin: 0;
   padding: 0.25em 0.25em 0.75em 0.25em;
-  width: 49.5%; }
+  width: 49.5%;
+  vertical-align: top;
+}
 
 #subnav_Tasks {
   font-size: .8em;
@@ -584,7 +622,7 @@ form[action="UpdateSubStudy"] .textbox_center td.table_cell, form[action="Update
 .jmesa .fa, .jmesa .icon {
   font-size: .9em; }
 
-.jmesa td {
+.jmesa td, .jmesa td text {
   font-size: .85rem; }
 
 .jmesa .table {
@@ -617,7 +655,7 @@ form[action="UpdateSubStudy"] .textbox_center td.table_cell, form[action="Update
 .jmesa table#findSubjects .odd > td, .jmesa table#findSubjects .even > td, .jmesa table#findSubjects .highlight > td, .jmesa table#findSubjects td table td {
   vertical-align: middle; }
 
-.jmesa table:not(#studyAuditLogs) .odd td, .jmesa table:not(#studyAuditLogs) .even td, .jmesa table:not(#studyAuditLogs) .highlight td {
+.jmesa table:not(#studyAuditLogs) .odd td, .jmesa table:not(#studyAuditLogs) .even td, .jmesa table:not(#studyAuditLogs) .highlight td, .jmesa table#listNotes td text {
   border: none;
   font-family: 'Open Sans', arial, helvetica, sans-serif;
   font-weight: 400;
@@ -838,7 +876,6 @@ div#subjectSDV table#sdv {
 }
 
 .alert.small {
-  line-height: 3px;
   margin-bottom: 10px;
   font-size: small;
   text-align: left;
@@ -866,4 +903,50 @@ div#subjectSDV table#sdv {
 
 body.query-page .aka_revised_content{
   max-width: 100%;
+}
+
+form#searchByStudySubjectId {
+  margin-bottom: 0;
+}
+
+.connect-widget {
+  padding: 10px;
+  background: #f1f1f1;
+  border-radius: 5px;
+}
+
+.hide {
+  display: none;
+}
+
+.invisible {
+  visibility: hidden;
+}
+
+#bt_Home td.oc-menu-bar ul li {
+  padding: 0;
+}
+
+#bt_Home td.oc-menu-bar ul li a {
+  display: block;
+  padding: .5em;
+}
+
+.popover.pid {
+  width: 500px;
+  max-width: 600px;
+  height: 235px;
+}
+
+.popover.pid .popover-title {
+  padding: 15px 14px;
+}
+
+.popover.pid .arrow {
+  display: none;
+}
+
+.main_BG .tour-backdrop {
+  opacity: 1;
+  background: #fff;
 }

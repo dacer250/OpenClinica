@@ -9,11 +9,7 @@ package org.akaza.openclinica.dao.managestudy;
 
 import java.sql.Connection;
 import java.sql.Types;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
+import java.util.*;
 
 import javax.sql.DataSource;
 
@@ -31,6 +27,7 @@ import org.akaza.openclinica.dao.core.DAODigester;
 import org.akaza.openclinica.dao.core.SQLFactory;
 import org.akaza.openclinica.dao.core.TypeNames;
 import org.akaza.openclinica.dao.submit.SubjectGroupMapDAO;
+import org.akaza.openclinica.service.UserStatus;
 import org.apache.commons.lang.StringUtils;
 
 /**
@@ -82,75 +79,26 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
 
         this.unsetTypeExpected();
         int ind = 1;
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_subject_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // label
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // secondary_label
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // subject_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // status_id
 
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // enrollment_date
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // date_created
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // date_updated
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // owner_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // update_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // oc oid
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // time_zone
-        // this.setTypeExpected(ind, TypeNames.INT);
-        // ind++; //
+        ind = setStudySubjectTypeExpected(ind);
     }
 
     public void setTypesExpectedFilter() {
 
         this.unsetTypeExpected();
         int ind = 1;
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_subject_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // label
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // secondary_label
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // subject_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // status_id
-
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // enrollment_date
-        this.setTypeExpected(ind, TypeNames.TIMESTAMP);
-        ind++; // date_created
-        this.setTypeExpected(ind, TypeNames.TIMESTAMP);
-        ind++; // date_updated
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // owner_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // update_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // oc oid
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++;
-
+        ind = setStudySubjectTypeExpected(ind);
     }
 
     public void setDNTypesExpected() {
 
         this.unsetTypeExpected();
         int ind = 1;
+
+        ind = setStudySubjectTypeExpected(ind);
+    }
+
+    private int setStudySubjectTypeExpected(int ind){
         this.setTypeExpected(ind, TypeNames.INT);
         ind++; // study_subject_id
         this.setTypeExpected(ind, TypeNames.STRING);
@@ -175,14 +123,15 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         this.setTypeExpected(ind, TypeNames.INT);
         ind++; // update_id
         this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // oc oid
+        ind++; // oc_oid
         this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; //
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; //
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; //
+        ind++; // time_zone
+        this.setTypeExpected(ind, TypeNames.INT);
+        ind++; // user_id
+        this.setTypeExpected(ind, TypeNames.INT);
+        ind++; // user_status_id
 
+        return ind;
     }
 
     /**
@@ -211,6 +160,14 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         // eb.setEventStartDate((Date) hm.get("date_start"));
         // eb.setActive(true);
         eb.setTime_zone((String) hm.get("time_zone"));
+        eb.setUserId((Integer) hm.get("user_id"));
+
+        for(UserStatus us:UserStatus.values()){
+            if(us.getCode()==(Integer) hm.get("user_status_id")){
+                eb.setUserStatus(us);
+                break;
+            }
+        }
         return eb;
     }
 
@@ -378,6 +335,26 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         return answer;
     }
 
+    public ArrayList findAllBySiteId(int siteId) {
+        ArrayList answer = new ArrayList();
+
+        this.setTypesExpected();
+
+        HashMap variables = new HashMap();
+        variables.put(new Integer(1), new Integer(siteId));
+
+        String sql = digester.getQuery("findAllBySitetId");
+        ArrayList alist = this.select(sql, variables);
+        Iterator it = alist.iterator();
+
+        while (it.hasNext()) {
+            StudySubjectBean ssb = (StudySubjectBean) this.getEntityFromHashMap((HashMap) it.next());
+            answer.add(ssb);
+        }
+
+        return answer;
+    }
+
     public EntityBean findAnotherBySameLabel(String label, int studyId, int studySubjectId) {
         StudySubjectBean eb = new StudySubjectBean();
         this.setTypesExpected();
@@ -437,6 +414,25 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         return eb;
     }
 
+    public StudySubjectBean findByLabel(String label) {
+        StudySubjectBean answer = new StudySubjectBean();
+        this.setTypesExpected();
+
+        HashMap variables = new HashMap();
+        variables.put(new Integer(1), label);
+
+        String sql = digester.getQuery("findByLabel");
+
+        ArrayList alist = this.select(sql, variables);
+        Iterator it = alist.iterator();
+
+        if (it.hasNext()) {
+            answer = (StudySubjectBean) this.getEntityFromHashMap((HashMap) it.next());
+        }
+
+        return answer;
+    }
+
     public StudySubjectBean findByLabelAndStudy(String label, StudyBean study) {
         StudySubjectBean answer = new StudySubjectBean();
         this.setTypesExpected();
@@ -458,6 +454,26 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         return answer;
     }
 
+  
+    public StudySubjectBean findByLabelAndOnlyByStudy(String label, StudyBean study) {
+        StudySubjectBean answer = new StudySubjectBean();
+        this.setTypesExpected();
+
+        HashMap variables = new HashMap();
+        variables.put(new Integer(1), label);
+        variables.put(new Integer(2), new Integer(study.getId()));      
+
+        String sql = digester.getQuery("findByLabelAndOnlyByStudy");
+
+        ArrayList alist = this.select(sql, variables);
+        Iterator it = alist.iterator();
+
+        if (it.hasNext()) {
+            answer = (StudySubjectBean) this.getEntityFromHashMap((HashMap) it.next());
+        }
+
+        return answer;
+    }
     /**
      * Finds a study subject which has the same label provided in the same study
      *
@@ -584,8 +600,15 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
             ind++;
         }
 
-        variables.put(new Integer(ind), sb.getSecondaryLabel());
-        ind++;
+        String secondLabel = sb.getSecondaryLabel();
+        if(secondLabel == null) {
+        	nullVars.put(new Integer(ind), new Integer(Types.VARCHAR));
+            variables.put(new Integer(ind), null);
+            ind++;
+        }else {
+        	 variables.put(new Integer(ind), sb.getSecondaryLabel());
+             ind++;
+        }
 
         variables.put(new Integer(ind), getValidOid(sb));
         ind++;
@@ -659,6 +682,7 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
             studySubjectBean = (StudySubjectBean) this.getEntityFromHashMap((HashMap) it.next());
             return studySubjectBean;
         } else {
+        	logger.info(sql+"WARNING: cannot find StudySubjectBean by oid " + oid + " and study id " + studyId);
             return null;
         }
     }
@@ -683,14 +707,31 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
     }
 
     public ArrayList<StudySubjectBean> getWithFilterAndSort(StudyBean currentStudy, FindSubjectsFilter filter, FindSubjectsSort sort, int rowStart,
-            int rowEnd) {
+            int rowEnd ,UserStatus participateStatusSetFilter) {
         ArrayList<StudySubjectBean> studySubjects = new ArrayList<StudySubjectBean>();
         setTypesExpected();
         String partialSql;
         HashMap variables = new HashMap();
-        variables.put(new Integer(1), currentStudy.getId());
-        variables.put(new Integer(2), currentStudy.getId());
-        String sql = digester.getQuery("getWithFilterAndSort");
+
+        String sql;
+        if (filter.getFilters().isEmpty()){
+            sql = digester.getQuery("getFromStudy");
+        }
+        else {
+            sql = digester.getQuery("getWithFilterAndSort");
+        }
+
+        if(participateStatusSetFilter ==null) {
+            variables.put(new Integer(1), currentStudy.getId());
+            variables.put(new Integer(2), currentStudy.getId());
+        }else{
+            sql = sql + " AND ss.user_status_id = ?";
+            variables.put(new Integer(1), currentStudy.getId());
+            variables.put(new Integer(2), currentStudy.getId());
+            variables.put(new Integer(3), participateStatusSetFilter.getCode());
+        }
+
+
         sql = sql + filter.execute("");
         // Order by Clause for the defect id 0005480
 
@@ -835,6 +876,24 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         }
     }
 
+    public Integer getCountofActiveStudySubjects() {
+        StudySubjectBean studySubjectBean = new StudySubjectBean();
+        setTypesExpected();
+
+        HashMap variables = new HashMap();
+        String sql = digester.getQuery("getCountOfActiveStudySubjects");
+
+        ArrayList rows = this.select(sql, variables);
+        Iterator it = rows.iterator();
+
+        if (it.hasNext()) {
+            Integer count = (Integer) ((HashMap) it.next()).get("count");
+            return count;
+        } else {
+            return null;
+        }
+    }
+
     public Integer getCountofStudySubjectsBasedOnStatus(StudyBean currentStudy, Status status) {
         StudySubjectBean studySubjectBean = new StudySubjectBean();
         setTypesExpected();
@@ -956,14 +1015,37 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         return studySubjects;
     }
 
-    public Integer getCountWithFilter(FindSubjectsFilter filter, StudyBean currentStudy) {
+    public Integer getCountWithFilter(FindSubjectsFilter filter, StudyBean currentStudy ,UserStatus participateStatusSetFilter) {
         StudySubjectBean studySubjectBean = new StudySubjectBean();
         setTypesExpected();
 
         HashMap variables = new HashMap();
-        variables.put(new Integer(1), currentStudy.getId());
-        variables.put(new Integer(2), currentStudy.getId());
-        String sql = digester.getQuery("getCountWithFilter");
+        String sql = "";
+        boolean filterIsEmpty = false;
+       
+        if (filter.getFilters().isEmpty()){
+            sql = digester.getQuery("getCountofStudySubjects");
+            filterIsEmpty = true;
+        }
+        else {
+            sql = digester.getQuery("getCountWithFilter");
+        }
+
+        if(participateStatusSetFilter ==null) {
+            variables.put(new Integer(1), currentStudy.getId());
+            variables.put(new Integer(2), currentStudy.getId());
+        }else{
+        	if(filterIsEmpty) {
+        		sql=sql + " WHERE subss.user_status_id=?";
+        	}else {
+        		sql=sql + " AND ss.user_status_id=?";
+        	}
+          
+            variables.put(new Integer(1), currentStudy.getId());
+            variables.put(new Integer(2), currentStudy.getId());
+            variables.put(new Integer(3), participateStatusSetFilter.getCode());
+        }
+
         sql += filter.execute("");
 
         ArrayList rows = this.select(sql, variables);
@@ -1128,6 +1210,15 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
             variables.put(new Integer(ind), sb.getTime_zone());
         }
         ind++;
+        if (sb.getUserId() == 0 ) {
+            nullVars.put(new Integer(ind), new Integer(TypeNames.STRING));
+            variables.put(new Integer(ind), null);
+        } else {
+            variables.put(new Integer(ind), sb.getUserId());
+        }
+        ind++;
+        variables.put(new Integer(ind), new Integer(sb.getUserStatus()!=null?sb.getUserStatus().getCode():null));
+        ind++;
         variables.put(new Integer(ind), new Integer(sb.getId()));
         ind++;
 
@@ -1190,33 +1281,8 @@ public class StudySubjectDAO<K extends String, V extends ArrayList> extends Audi
         ind++; // unique_identifier
         this.setTypeExpected(ind, TypeNames.CHAR);
         ind++; // gender
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_subject_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // label
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // secondary_label
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // subject_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // study_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // status_id
 
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // enrollment_date
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // date_created
-        this.setTypeExpected(ind, TypeNames.DATE);
-        ind++; // date_updated
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // owner_id
-        this.setTypeExpected(ind, TypeNames.INT);
-        ind++; // update_id
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // secondary_label
-        this.setTypeExpected(ind, TypeNames.STRING);
-        ind++; // studyName
+        ind = setStudySubjectTypeExpected(ind);
 
         HashMap variables = new HashMap();
         variables.put(new Integer(1), new Integer(studyId));

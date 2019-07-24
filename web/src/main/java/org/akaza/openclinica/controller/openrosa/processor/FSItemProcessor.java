@@ -9,14 +9,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import javax.sql.DataSource;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import org.akaza.openclinica.bean.core.SubjectEventStatus;
+import org.akaza.openclinica.bean.login.UserAccountBean;
+import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
 import org.akaza.openclinica.controller.openrosa.QueryService;
 import org.akaza.openclinica.controller.openrosa.SubmissionContainer;
 import org.akaza.openclinica.controller.openrosa.SubmissionContainer.FieldRequestTypeEnum;
 import org.akaza.openclinica.controller.openrosa.SubmissionProcessorChain.ProcessorEnum;
+import org.akaza.openclinica.dao.hibernate.AuditLogEventDao;
 import org.akaza.openclinica.dao.hibernate.CrfVersionDao;
 import org.akaza.openclinica.dao.hibernate.EventCrfDao;
 import org.akaza.openclinica.dao.hibernate.FormLayoutMediaDao;
@@ -25,28 +32,24 @@ import org.akaza.openclinica.dao.hibernate.ItemDataDao;
 import org.akaza.openclinica.dao.hibernate.ItemFormMetadataDao;
 import org.akaza.openclinica.dao.hibernate.ItemGroupDao;
 import org.akaza.openclinica.dao.hibernate.ItemGroupMetadataDao;
+import org.akaza.openclinica.dao.hibernate.RepeatCountDao;
+import org.akaza.openclinica.dao.hibernate.StudyEventDao;
+import org.akaza.openclinica.dao.hibernate.StudySubjectDao;
+import org.akaza.openclinica.dao.login.UserAccountDAO;
+import org.akaza.openclinica.dao.managestudy.StudySubjectDAO;
 import org.akaza.openclinica.domain.Status;
-import org.akaza.openclinica.domain.datamap.CrfVersion;
-import org.akaza.openclinica.domain.datamap.EventCrf;
-import org.akaza.openclinica.domain.datamap.FormLayout;
-import org.akaza.openclinica.domain.datamap.FormLayoutMedia;
-import org.akaza.openclinica.domain.datamap.Item;
-import org.akaza.openclinica.domain.datamap.ItemData;
-import org.akaza.openclinica.domain.datamap.ItemFormMetadata;
-import org.akaza.openclinica.domain.datamap.ItemGroup;
-import org.akaza.openclinica.domain.datamap.ItemGroupMetadata;
+import org.akaza.openclinica.domain.datamap.*;
 import org.akaza.openclinica.domain.xform.XformParserHelper;
+import org.akaza.openclinica.validator.ParticipantValidator;
+import org.apache.xerces.dom.AttributeMap;
+import org.apache.xerces.dom.DeferredAttrImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.Errors;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
+import org.w3c.dom.*;
 import org.xml.sax.InputSource;
 
 @Component
@@ -54,11 +57,17 @@ import org.xml.sax.InputSource;
 public class FSItemProcessor extends AbstractItemProcessor implements Processor {
 
     @Autowired
+    private DataSource dataSource;
+    @Autowired
     private QueryService queryService;
     @Autowired
     private ItemDataDao itemDataDao;
     @Autowired
     private EventCrfDao eventCrfDao;
+    @Autowired
+    private StudyEventDao studyEventDao;
+    @Autowired
+    private StudySubjectDao studySubjectDao;
     @Autowired
     private ItemDao itemDao;
     @Autowired
@@ -73,8 +82,28 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
     private XformParserHelper xformParserHelper;
     @Autowired
     FormLayoutMediaDao formLayoutMediaDao;
+    @Autowired
+    AuditLogEventDao auditLogEventDao;
+    @Autowired
+    RepeatCountDao repeatCountDao;
 
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
+    public static final String STUDYEVENT = "study_event";
+    public static final String STUDYSUBJECT = "study_subject";
+    public static final String REPEATCOUNT = "_count";
+
+    public static final String OC_CONTACTDATA = "oc:contactdata";
+    public static final String FIRSTNAME = "firstname";
+    public static final String LASTNAME = "lastname";
+    public static final String SECONDARYID = "secondaryid";
+    public static final String EMAIL = "email";
+    public static final String MOBILENUMBER = "mobilenumber";
+
+    public static final String US_PHONE_PREFIX = "+1 ";
+
+
+
+
 
     public ProcessorEnum process(SubmissionContainer container) throws Exception {
 
@@ -122,6 +151,15 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
                 itemNodeSet = xformParserHelper.instanceItemNodes(instanceNode, itemNodeSet);
                 if (itemNodeSet.size() != 0) {
                     itemNode = itemNodeSet.iterator().next();
+
+                    for (int j = 0; j < itemNode.getAttributes().getLength(); j++) {
+                        Attr attr = (Attr) itemNode.getAttributes().item(j);
+                        if (attr.getNodeName().equals(OC_CONTACTDATA)) {
+                            saveContactData(attr.getNodeValue(),itemNode.getTextContent(), container);
+                            return ProcessorEnum.PROCEED;
+                        }
+                    }
+
                     processFieldSubmissionGroupItems(listOfUploadFilePaths, repeatNode, itemNode, container, itemGroup);
                 }
             }
@@ -177,6 +215,7 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
                     existingItemData.setUpdateId(container.getUser().getUserId());
                     existingItemData.setInstanceId(container.getInstanceId());
                     existingItemData = itemDataDao.saveOrUpdate(existingItemData);
+                    updateEventSubjectStatusIfSigned(container);
                     resetSdvStatus(container);
 
                     // Close discrepancy notes
@@ -185,6 +224,7 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
                     ItemData newItemData = createItemData(ig.getItem(), "", itemOrdinal, container);
                     newItemData.setDeleted(true);
                     newItemData = itemDataDao.saveOrUpdate(newItemData);
+                    updateEventSubjectStatusIfSigned(container);
                 }
             }
             return;
@@ -241,6 +281,7 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
                 if (existingItemData == null) {
                     newItemData.setStatus(Status.UNAVAILABLE);
                     itemDataDao.saveOrUpdate(newItemData);
+                    updateEventSubjectStatusIfSigned(container);
                     resetSdvStatus(container);
 
                 } else if (existingItemData.getValue().equals(newItemData.getValue())) {
@@ -252,11 +293,23 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
                     existingItemData.setUpdateId(container.getUser().getUserId());
                     existingItemData.setDateUpdated(new Date());
                     itemDataDao.saveOrUpdate(existingItemData);
+                    updateEventSubjectStatusIfSigned(container);
                     resetSdvStatus(container);
                 }
             } else {
                 logger.error("Failed to lookup item: '" + itemName + "'.  Continuing with submission.");
-            }
+                int lastIndexOf = itemName.lastIndexOf(REPEATCOUNT);
+                ItemGroup iGroup = null;
+                if(lastIndexOf!=-1) {
+                    iGroup = itemGroupDao.findByCrfAndGroupLayout(formLayout.getCrf(), itemName.substring(0, lastIndexOf));
+                    if (iGroup != null) {
+                        saveOrUpdateRepeatCount(container, itemName, itemValue);
+                    }
+                }else {
+                    logger.error("Field Submission failed ");
+                    throw new Exception(" Field Submission failed due to Item '" + itemName + "' does not exist in form");
+                }
+                }
         }
     }
 
@@ -276,5 +329,117 @@ public class FSItemProcessor extends AbstractItemProcessor implements Processor 
         eventCrf.setSdvUpdateId(container.getUser().getUserId());
         eventCrfDao.saveOrUpdate(eventCrf);
     }
+
+    private void updateEventSubjectStatusIfSigned(SubmissionContainer container) {
+        StudyEvent studyEvent = container.getEventCrf().getStudyEvent();
+        if (studyEvent.getSubjectEventStatusId() == SubjectEventStatus.SIGNED.getId()) {
+            String eventOldStatusId = "3";
+            AuditLogEvent eventAuditLogEvent = new AuditLogEvent();
+            eventAuditLogEvent.setAuditTable(STUDYEVENT);
+            eventAuditLogEvent.setEntityId(studyEvent.getStudyEventId());
+            eventAuditLogEvent.setEntityName("Status");
+            eventAuditLogEvent.setAuditLogEventType(new AuditLogEventType(31));
+            eventAuditLogEvent.setNewValue(String.valueOf(SubjectEventStatus.SIGNED.getId()));
+
+            List<AuditLogEvent> eventAles = auditLogEventDao.findByParam(eventAuditLogEvent);
+            for (AuditLogEvent audit : eventAles) {
+                eventOldStatusId = audit.getOldValue();
+                break;
+            }
+            studyEvent.setSubjectEventStatusId(Integer.valueOf(eventOldStatusId));
+            studyEvent.setUpdateId(container.getUser().getUserId());
+            studyEvent.setDateUpdated(new Date());
+            studyEventDao.saveOrUpdate(studyEvent);
+        }
+        StudySubject studySubject = container.getSubject();
+
+        // This code previously existed within the above if block. This resulted in a bug where if an event was scheduled
+        // for a participant that was already signed then entering data in that new event would bypass the logic. By moving
+        // it here the subject status should be properly updated, regardless of the status of any other events.
+        if (studySubject.getStatus() == Status.SIGNED) {
+            String subjectOldStatusId = "1";
+            AuditLogEvent subjectAuditLogEvent = new AuditLogEvent();
+            subjectAuditLogEvent.setAuditTable(STUDYSUBJECT);
+            subjectAuditLogEvent.setEntityId(studySubject.getStudySubjectId());
+            subjectAuditLogEvent.setEntityName("Status");
+            subjectAuditLogEvent.setAuditLogEventType(new AuditLogEventType(3));
+            subjectAuditLogEvent.setNewValue(String.valueOf(SubjectEventStatus.SIGNED.getId()));
+
+            List<AuditLogEvent> subjectAles = auditLogEventDao.findByParam(subjectAuditLogEvent);
+            for (AuditLogEvent audit : subjectAles) {
+                subjectOldStatusId = audit.getOldValue();
+                break;
+            }
+            studySubject.setStatus(Status.getByCode(Integer.valueOf(subjectOldStatusId)));
+            studySubject.setUpdateId(container.getUser().getUserId());
+            studySubject.setDateUpdated(new Date());
+            studySubjectDao.saveOrUpdate(studySubject);
+        }
+    }
+
+    public void saveOrUpdateRepeatCount(SubmissionContainer container, String itemName, String itemValue) {
+        RepeatCount repeatCount = repeatCountDao.findByEventCrfIdAndRepeatName(container.getEventCrf().getEventCrfId(), itemName);
+        if (repeatCount == null) {
+            repeatCount = new RepeatCount();
+            repeatCount.setEventCrf(container.getEventCrf());
+            repeatCount.setGroupName(itemName);
+            repeatCount.setGroupCount(itemValue);
+            repeatCount.setDateCreated(new Date());
+            repeatCount.setUserAccount(container.getUser());
+            repeatCountDao.saveOrUpdate(repeatCount);
+        } else if (repeatCount != null && !repeatCount.getGroupCount().equals(itemValue)) {
+            repeatCount.setGroupCount(itemValue);
+            repeatCount.setUpdateId(container.getUser().getUserId());
+            repeatCount.setDateUpdated(new Date());
+            repeatCountDao.saveOrUpdate(repeatCount);
+        }
+    }
+
+    private void saveContactData(String attrValue, String itemValue,SubmissionContainer container) {
+        StudySubject studySubject= container.getSubject();
+        setStudySubjectDetail(studySubject);
+        studySubject.setUpdateId(container.getUser().getUserId());
+        studySubject.setDateUpdated(new Date());
+
+        StudySubjectDAO ssdao = new StudySubjectDAO(dataSource);
+        UserAccountDAO udao = new UserAccountDAO(dataSource);
+        UserAccountBean userAccountBean=(UserAccountBean) udao.findByPK(container.getUser().getUserId());
+
+        StudySubjectBean studySubjectBean=(StudySubjectBean) ssdao.findByPK(studySubject.getStudySubjectId());
+        studySubjectBean.setUpdatedDate(new Date());
+        studySubjectBean.setUpdater(userAccountBean);
+        ssdao.update(studySubjectBean);
+
+        if (attrValue.equals(FIRSTNAME)) {
+            studySubject.getStudySubjectDetail().setFirstName(itemValue);
+            studySubjectDao.saveOrUpdate(studySubject);
+        } else if (attrValue.equals(LASTNAME)) {
+            studySubject.getStudySubjectDetail().setLastName(itemValue);
+            studySubjectDao.saveOrUpdate(studySubject);
+        } else if (attrValue.equals(SECONDARYID)) {
+            studySubject.getStudySubjectDetail().setIdentifier(itemValue);
+            studySubjectDao.saveOrUpdate(studySubject);
+        } else if (attrValue.equals(EMAIL)) {
+            studySubject.getStudySubjectDetail().setEmail(itemValue);
+            studySubjectDao.saveOrUpdate(studySubject);
+        } else if (attrValue.equals(MOBILENUMBER)) {
+            Pattern usPhonePattern = Pattern.compile(ParticipantValidator.US_PHONE_PATTERN);
+            Matcher usPhoneMatch = usPhonePattern.matcher(itemValue);
+            if(usPhoneMatch.matches() && itemValue.length()==10) {
+                itemValue=US_PHONE_PREFIX+itemValue;
+            }
+            studySubject.getStudySubjectDetail().setPhone(itemValue);
+            studySubjectDao.saveOrUpdate(studySubject);
+        }
+    }
+
+    private void setStudySubjectDetail(StudySubject studySubject) {
+        if (studySubject.getStudySubjectDetail() == null) {
+            StudySubjectDetail studySubjectDetail = new StudySubjectDetail();
+            studySubject.setStudySubjectDetail(studySubjectDetail);
+        }
+
+    }
+
 
 }

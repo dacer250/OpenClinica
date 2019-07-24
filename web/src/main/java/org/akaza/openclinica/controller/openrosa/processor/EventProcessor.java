@@ -66,6 +66,7 @@ public class EventProcessor implements Processor {
     StudyDao studyDao;
 
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
+    private final String COMMON = "common";
 
     public ProcessorEnum process(SubmissionContainer container) throws Exception {
         logger.info("Executing Event Processor.");
@@ -111,23 +112,26 @@ public class EventProcessor implements Processor {
         } else
             container.setStudyEvent(existingEvent);
 
-        EventCrf existingEventCrf = eventCrfDao.findByStudyEventIdStudySubjectIdCrfId(container.getStudyEvent().getStudyEventId(),
+        List<EventCrf> existingEventCrfs = eventCrfDao.findByStudyEventIdStudySubjectIdCrfId(container.getStudyEvent().getStudyEventId(),
                 container.getSubject().getStudySubjectId(), container.getFormLayout().getCrf().getCrfId());
-        if (existingEventCrf == null) {
+        if (existingEventCrfs == null || existingEventCrfs.size() == 0) {
             logger.info("***New EventCrf is created***");
             // create event crf
             container.setEventCrf(createEventCrf(container.getFormLayout(), container.getStudyEvent(), container.getSubject(), container.getUser()));
-        } else if (existingEventCrf.getCrfVersion().getOcOid().equals(container.getCrfVersion().getOcOid())) {
-            logger.info("***  Existing EventCrf with same CRF Version  ***");
-            // use existing event crf
-            container.setEventCrf(existingEventCrf);
         } else {
-            // different version already exists. log error and abort submission
-            errors.reject("Existing EventCrf with other CRF version");
-            logger.info("***  Existing EventCrf with other CRF version  ***");
-            throw new Exception("***  Existing EventCrf with other CRF version  ***");
+            for (EventCrf existingEventCrf : existingEventCrfs) {
+                if (existingEventCrf.getFormLayout().getOcOid().equals(container.getFormLayout().getOcOid())) {
+                    logger.info("***  Existing EventCrf with same CRF Version  ***");
+                    // use existing event crf
+                    container.setEventCrf(existingEventCrf);
+                } else {
+                    // different version already exists. log error and abort submission
+                    errors.reject("Existing EventCrf with other CRF version");
+                    logger.info("***  Existing EventCrf with other CRF version  ***");
+                    throw new Exception("***  Existing EventCrf with other CRF version  ***");
+                }
+            }
         }
-
     }
 
     private void processAnonymous(SubmissionContainer container, Errors errors, StudySubject studySubject, StudyEventDefinition studyEventDefinition)
@@ -157,26 +161,27 @@ public class EventProcessor implements Processor {
                     throw new Exception("***  Existing StudyEvent is not Available and EventDef is not repeating  ***");
                 }
             } else {
-                EventCrf existingEventCrf = eventCrfDao.findByStudyEventIdStudySubjectIdCrfId(existingStudyEvent.getStudyEventId(),
+                List<EventCrf> existingEventCrfs = eventCrfDao.findByStudyEventIdStudySubjectIdCrfId(existingStudyEvent.getStudyEventId(),
                         container.getSubject().getStudySubjectId(), formLayout.getCrf().getCrfId());
-                if (existingEventCrf == null) {
+                if (existingEventCrfs == null || existingEventCrfs.size() == 0) {
                     container.setStudyEvent(existingStudyEvent);
                     container.setEventCrf(createEventCrf(formLayout, container.getStudyEvent(), container.getSubject(), container.getUser()));
                     break;
                 } else {
-
-                    List<ItemData> itemDataList = itemDataDao.findByEventCrfId(existingEventCrf.getEventCrfId());
-                    if (existingEventCrf.getStatusId().equals(Status.AVAILABLE.getCode()) && itemDataList.size() == 0) {
-                        container.setStudyEvent(existingStudyEvent);
-                        container.setEventCrf(existingEventCrf);
-                        break;
-                    } else if (studyEventDefinition.getRepeating()) {
-                        ordinal++;
-                        continue;
-                    } else {
-                        errors.reject("Existing EventCRF is not usable and EventDef is not repeating");
-                        logger.info("***  Existing EventCRF is not usable and EventDef is not repeating  ***");
-                        throw new Exception("***  Existing EventCRF is not usable and EventDef is not repeating  ***");
+                    for (EventCrf existingEventCrf : existingEventCrfs) {
+                        List<ItemData> itemDataList = itemDataDao.findByEventCrfId(existingEventCrf.getEventCrfId());
+                        if (existingEventCrf.getStatusId().equals(Status.AVAILABLE.getCode()) && itemDataList.size() == 0) {
+                            container.setStudyEvent(existingStudyEvent);
+                            container.setEventCrf(existingEventCrf);
+                            break;
+                        } else if (studyEventDefinition.getRepeating()) {
+                            ordinal++;
+                            continue;
+                        } else {
+                            errors.reject("Existing EventCRF is not usable and EventDef is not repeating");
+                            logger.info("***  Existing EventCRF is not usable and EventDef is not repeating  ***");
+                            throw new Exception("***  Existing EventCRF is not usable and EventDef is not repeating  ***");
+                        }
                     }
                 }
             }
@@ -202,7 +207,8 @@ public class EventProcessor implements Processor {
         studyEvent.setEndTimeFlag(false);
         studyEvent.setDateCreated(currentDate);
         studyEvent.setLocation("");
-        StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(true, true);
+        StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(true, false);
+
         StudyEventContainer container = new StudyEventContainer(studyEvent, changeDetails);
         studyEventDao.saveOrUpdateTransactional(container);
         studyEvent = studyEventDao.fetchByStudyEventDefOIDAndOrdinal(studyEventDefinition.getOc_oid(), ordinal, studySubject.getStudySubjectId());
@@ -244,8 +250,12 @@ public class EventProcessor implements Processor {
         int completedCrfCount = 0;
 
         if (!isAnonymous) {
-            if (studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.SCHEDULED.getCode().intValue())
+            if ((studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.SCHEDULED.getCode().intValue())
+                    || (studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.NOT_SCHEDULED.getCode().intValue()
+                            && studyEventDefinition.getType().equals(COMMON))) {
                 newStatus = SubjectEventStatus.DATA_ENTRY_STARTED;
+            }
+
         } else {
             // Get a count of CRFs defined for the event
             // TODO: What i need to do to fix this is get the study from the context
@@ -265,7 +275,9 @@ public class EventProcessor implements Processor {
                         || studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.DATA_ENTRY_STARTED.getCode().intValue()) {
                     newStatus = SubjectEventStatus.COMPLETED;
                 }
-            } else if (studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.SCHEDULED.getCode().intValue()) {
+            } else if ((studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.SCHEDULED.getCode().intValue())
+                    || (studyEvent.getSubjectEventStatusId().intValue() == SubjectEventStatus.NOT_SCHEDULED.getCode().intValue()
+                            && studyEventDefinition.getType().equals(COMMON))) {
                 newStatus = SubjectEventStatus.DATA_ENTRY_STARTED;
             }
         }
@@ -273,8 +285,13 @@ public class EventProcessor implements Processor {
         if (newStatus != null) {
             studyEvent.setUpdateId(user.getUserId());
             studyEvent.setDateUpdated(new Date());
-            studyEvent.setSubjectEventStatusId(newStatus.getCode());
-            StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(true, false);
+            boolean statusChanged=false;
+            if(studyEvent.getSubjectEventStatusId()!=newStatus.getCode()){
+                studyEvent.setSubjectEventStatusId(newStatus.getCode());
+                statusChanged=true;
+            }
+
+            StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(statusChanged, false);
             StudyEventContainer container = new StudyEventContainer(studyEvent, changeDetails);
             studyEvent = studyEventDao.saveOrUpdateTransactional(container);
             logger.debug("*********UPDATED STUDY EVENT ");

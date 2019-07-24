@@ -43,6 +43,8 @@ import org.akaza.openclinica.domain.datamap.SubjectEventStatus;
 import org.akaza.openclinica.domain.user.UserAccount;
 import org.akaza.openclinica.exception.OpenClinicaSystemException;
 import org.akaza.openclinica.i18n.core.LocaleResolver;
+import org.akaza.openclinica.patterns.ocobserver.StudyEventChangeDetails;
+import org.akaza.openclinica.patterns.ocobserver.StudyEventContainer;
 import org.akaza.openclinica.web.pform.PFormCache;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
@@ -107,9 +109,6 @@ public class OpenRosaSubmissionController {
     private StudyEventDefinitionDao studyEventDefinitionDao;
 
     @Autowired
-    PformSubmissionNotificationService notifier;
-
-    @Autowired
     CompletionStatusDao completionStatusDao;
 
     @Autowired
@@ -120,6 +119,7 @@ public class OpenRosaSubmissionController {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
     public static final String FORM_CONTEXT = "ecid";
+    private final String COMMON = "common";
 
     /**
      * @api {post} /pages/api/v1/editform/:studyOid/submission Submit form data
@@ -183,10 +183,11 @@ public class OpenRosaSubmissionController {
             // Load user context from ecid
             PFormCache cache = PFormCache.getInstance(context);
             subjectContext = cache.getSubjectContext(ecid);
+            UserAccount userAccount = getUserAccount(subjectContext);
 
             // Execute save as Hibernate transaction to avoid partial imports
             openRosaSubmissionService.processRequest(study, subjectContext, requestBody, errors, locale, listOfUploadFilePaths,
-                    SubmissionContainer.FieldRequestTypeEnum.FORM_FIELD);
+                    SubmissionContainer.FieldRequestTypeEnum.FORM_FIELD,userAccount);
 
         } catch (Exception e) {
             logger.error("Exception while processing xform submission.");
@@ -202,8 +203,6 @@ public class OpenRosaSubmissionController {
 
         if (!errors.hasErrors()) {
             // JsonLog submission with Participate
-            if (isParticipantSubmission(subjectContext))
-                notifier.notify(studyOID, subjectContext);
             logger.info("Completed xform submission. Sending successful response");
             String responseMessage = "<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">" + "<message>success</message>" + "</OpenRosaResponse>";
             return new ResponseEntity<String>(responseMessage, HttpStatus.CREATED);
@@ -225,6 +224,8 @@ public class OpenRosaSubmissionController {
         String studySubjectOID = subjectContext.get("studySubjectOID");
         String formLayoutOID = subjectContext.get("formLayoutOID");
         int studyEventOrdinal = Integer.valueOf(subjectContext.get("studyEventOrdinal"));
+        String accessToken = subjectContext.get("accessToken");
+        request.getSession().setAttribute("accessToken",accessToken);
 
         UserAccount userAccount = userAccountDao.findById(userAccountID);
         Study parentStudy = studyDao.findByOcOID(studyOID);
@@ -246,42 +247,30 @@ public class OpenRosaSubmissionController {
             createItemData(items.get(0), "", eventCrf, userAccount);
         }
 
-        eventCrf.setStatusId(org.akaza.openclinica.domain.Status.UNAVAILABLE.getCode());
-        eventCrf.setUserAccount(userAccount);
-        eventCrf.setUpdateId(userAccount.getUserId());
-        eventCrf.setDateUpdated(new Date());
-        eventCrfDao.saveOrUpdate(eventCrf);
-
-        List<EventCrf> eventCrfs = eventCrfDao.findByStudyEventIdStudySubjectId(studyEvent.getStudyEventId(), studySubject.getOcOid());
-        List<EventDefinitionCrf> eventDefinitionCrfs = eventDefinitionCrfDao.findAvailableByStudyEventDefStudy(sed.getStudyEventDefinitionId(),
-                study.getStudyId());
-
-        int count = 0;
-        for (EventCrf evCrf : eventCrfs) {
-            if (evCrf.getStatusId() == org.akaza.openclinica.domain.Status.UNAVAILABLE.getCode()
-                    || evCrf.getStatusId() == org.akaza.openclinica.domain.Status.DELETED.getCode()
-                    || evCrf.getStatusId() == org.akaza.openclinica.domain.Status.AUTO_DELETED.getCode()) {
-                for (EventDefinitionCrf eventDefinitionCrf : eventDefinitionCrfs) {
-                    if (eventDefinitionCrf.getCrf().getCrfId() == evCrf.getFormLayout().getCrf().getCrfId()) {
-                        count++;
-                        break;
-                    }
-                }
-            }
+        if (!eventCrf.getStatusId().equals(org.akaza.openclinica.domain.Status.UNAVAILABLE.getCode())) {
+            eventCrf.setStatusId(org.akaza.openclinica.domain.Status.UNAVAILABLE.getCode());
+            eventCrf.setUserAccount(userAccount);
+            eventCrf.setUpdateId(userAccount.getUserId());
+            eventCrf.setDateCompleted(new Date());
+            eventCrf.setDateUpdated(new Date());
+            eventCrfDao.saveOrUpdate(eventCrf);
         }
 
-        if (count == eventDefinitionCrfs.size()) {
-            studyEvent.setSubjectEventStatusId(SubjectEventStatus.COMPLETED.getCode());
-            studyEvent.setUserAccount(userAccount);
-            studyEventDao.saveOrUpdate(studyEvent);
-        } else if (studyEvent.getSubjectEventStatusId() == SubjectEventStatus.SCHEDULED.getCode()) {
-            studyEvent.setSubjectEventStatusId(SubjectEventStatus.DATA_ENTRY_STARTED.getCode());
-            studyEvent.setUserAccount(userAccount);
-            studyEventDao.saveOrUpdate(studyEvent);
-        }
+        updateStudyEventStatus(study,studySubject,sed,studyEvent,userAccount);
+
+        studySubject = unsignSignedParticipant(studySubject);
+        studySubjectDao.saveOrUpdate(studySubject);
 
         String responseMessage = "<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">" + "<message>success</message>" + "</OpenRosaResponse>";
         return new ResponseEntity<String>(responseMessage, HttpStatus.CREATED);
+    }
+
+    private StudySubject unsignSignedParticipant(StudySubject studySubject) {
+        Status subjectStatus = studySubject.getStatus();
+        if (subjectStatus.equals(Status.SIGNED)){
+            studySubject.setStatus(Status.AVAILABLE);
+        }
+        return studySubject;
     }
 
     /**
@@ -350,11 +339,11 @@ public class OpenRosaSubmissionController {
             // Load user context from ecid
             PFormCache cache = PFormCache.getInstance(context);
             subjectContext = cache.getSubjectContext(ecid);
+            UserAccount userAccount = getUserAccount(subjectContext);
 
             // Execute save as Hibernate transaction to avoid partial imports
             openRosaSubmissionService.processFieldSubmissionRequest(study, subjectContext, instanceId, requestBody, errors, locale, listOfUploadFilePaths,
-                    SubmissionContainer.FieldRequestTypeEnum.FORM_FIELD);
-
+                    SubmissionContainer.FieldRequestTypeEnum.FORM_FIELD,userAccount);
         } catch (Exception e) {
             logger.error("Exception while processing xform submission.");
             logger.error(e.getMessage());
@@ -369,8 +358,6 @@ public class OpenRosaSubmissionController {
 
         if (!errors.hasErrors()) {
             // JsonLog submission with Participate
-            if (isParticipantSubmission(subjectContext))
-                notifier.notify(studyOID, subjectContext);
             logger.info("Completed xform field submission. Sending successful response");
             String responseMessage = "<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">" + "<message>success</message>" + "</OpenRosaResponse>";
             long endMillis = System.currentTimeMillis();
@@ -447,10 +434,11 @@ public class OpenRosaSubmissionController {
             // Load user context from ecid
             PFormCache cache = PFormCache.getInstance(context);
             subjectContext = cache.getSubjectContext(ecid);
+            UserAccount userAccount = getUserAccount(subjectContext);
 
             // Execute save as Hibernate transaction to avoid partial imports
             openRosaSubmissionService.processFieldSubmissionRequest(study, subjectContext, instanceId, requestBody, errors, locale, listOfUploadFilePaths,
-                    SubmissionContainer.FieldRequestTypeEnum.DELETE_FIELD);
+                    SubmissionContainer.FieldRequestTypeEnum.DELETE_FIELD,userAccount);
 
         } catch (Exception e) {
             logger.error("Exception while processing xform submission.");
@@ -466,8 +454,6 @@ public class OpenRosaSubmissionController {
 
         if (!errors.hasErrors()) {
             // JsonLog submission with Participate
-            if (isParticipantSubmission(subjectContext))
-                notifier.notify(studyOID, subjectContext);
             logger.info("Completed xform field submission. Sending successful response");
             String responseMessage = "<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">" + "<message>success</message>" + "</OpenRosaResponse>";
             return new ResponseEntity<String>(responseMessage, HttpStatus.CREATED);
@@ -596,4 +582,78 @@ public class OpenRosaSubmissionController {
         itemDataDao.saveOrUpdate(itemData);
     }
 
+    private void persistStudyEvent(StudyEvent studyEvent,boolean statusChanged) {
+        StudyEventChangeDetails changeDetails = new StudyEventChangeDetails(statusChanged, false);
+        StudyEventContainer container = new StudyEventContainer(studyEvent, changeDetails);
+        studyEventDao.saveOrUpdateTransactional(container);
+    }
+
+    private UserAccount getUserAccount(HashMap<String, String> subjectContext) {
+        String userAccountId = subjectContext.get("userAccountID");
+        if (StringUtils.isNotEmpty(userAccountId)) {
+            UserAccount user = userAccountDao.findByUserId(Integer.valueOf(userAccountId));
+            return user;
+        }
+        return null;
+
+    }
+
+    public void updateStudyEventStatus(Study study, StudySubject studySubject, StudyEventDefinition sed, StudyEvent studyEvent, UserAccount userAccount) {
+        List<EventCrf> eventCrfs = eventCrfDao.findByStudyEventIdStudySubjectId(studyEvent.getStudyEventId(), studySubject.getOcOid());
+        List<EventDefinitionCrf> eventDefinitionCrfs = eventDefinitionCrfDao.findAvailableByStudyEventDefStudy(sed.getStudyEventDefinitionId(),
+                study.getStudyId());
+        boolean statusChanged = false;
+        studyEvent.setUpdateId(userAccount.getUserId());
+        studyEvent.setDateUpdated(new Date());
+        if (studyEvent.getSubjectEventStatusId() != SubjectEventStatus.SIGNED.getCode()) {
+            int count = 0;
+            for (EventCrf evCrf : eventCrfs) {
+                if (evCrf.getStatusId() == org.akaza.openclinica.domain.Status.UNAVAILABLE.getCode()
+                        || evCrf.getStatusId() == org.akaza.openclinica.domain.Status.DELETED.getCode()
+                        || evCrf.getStatusId() == org.akaza.openclinica.domain.Status.AUTO_DELETED.getCode()) {
+                    for (EventDefinitionCrf eventDefinitionCrf : eventDefinitionCrfs) {
+                        if (eventDefinitionCrf.getCrf().getCrfId() == evCrf.getFormLayout().getCrf().getCrfId()) {
+                            count++;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (count == eventDefinitionCrfs.size() || sed.getType().equals(COMMON)) {
+                if (studyEvent.getSubjectEventStatusId() != SubjectEventStatus.COMPLETED.getCode()) {
+                    studyEvent.setSubjectEventStatusId(SubjectEventStatus.COMPLETED.getCode());
+                    statusChanged = true;
+                }
+                studyEvent.setUserAccount(userAccount);
+                persistStudyEvent(studyEvent, statusChanged);
+            } else if (studyEvent.getSubjectEventStatusId() == SubjectEventStatus.SCHEDULED.getCode()) {
+                if (studyEvent.getSubjectEventStatusId() != SubjectEventStatus.DATA_ENTRY_STARTED.getCode()) {
+                    studyEvent.setSubjectEventStatusId(SubjectEventStatus.DATA_ENTRY_STARTED.getCode());
+                    statusChanged = true;
+                }
+                studyEvent.setUserAccount(userAccount);
+                persistStudyEvent(studyEvent, statusChanged);
+            }
+        } else {
+            boolean allFormsComplete = true;
+            for (EventCrf evCrf : eventCrfs) {
+                if (studyEvent.getId() != evCrf.getId() && !evCrf.getStatusId().equals(SubjectEventStatus.COMPLETED.getCode())) {
+                    allFormsComplete = false;
+                }
+            }
+            if (allFormsComplete) {
+                if (studyEvent.getSubjectEventStatusId() != SubjectEventStatus.COMPLETED.getCode()) {
+                    studyEvent.setSubjectEventStatusId(SubjectEventStatus.COMPLETED.getCode());
+                    statusChanged = true;
+                }
+            } else {
+                if (studyEvent.getSubjectEventStatusId() != SubjectEventStatus.DATA_ENTRY_STARTED.getCode()) {
+                    studyEvent.setSubjectEventStatusId(SubjectEventStatus.DATA_ENTRY_STARTED.getCode());
+                    statusChanged = true;
+                }
+            }
+            persistStudyEvent(studyEvent, statusChanged);
+        }
+    }
 }

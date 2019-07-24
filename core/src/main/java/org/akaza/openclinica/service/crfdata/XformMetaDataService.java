@@ -1,57 +1,16 @@
 package org.akaza.openclinica.service.crfdata;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.Set;
-
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.akaza.openclinica.bean.core.Utils;
-import org.akaza.openclinica.bean.login.UserAccountBean;
-import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.dao.core.CoreResources;
-import org.akaza.openclinica.dao.hibernate.CrfDao;
-import org.akaza.openclinica.dao.hibernate.CrfVersionDao;
-import org.akaza.openclinica.dao.hibernate.FormLayoutDao;
-import org.akaza.openclinica.dao.hibernate.FormLayoutMediaDao;
-import org.akaza.openclinica.dao.hibernate.ItemDao;
-import org.akaza.openclinica.dao.hibernate.ItemDataTypeDao;
-import org.akaza.openclinica.dao.hibernate.ItemFormMetadataDao;
-import org.akaza.openclinica.dao.hibernate.ItemGroupDao;
-import org.akaza.openclinica.dao.hibernate.ItemGroupMetadataDao;
-import org.akaza.openclinica.dao.hibernate.ItemReferenceTypeDao;
-import org.akaza.openclinica.dao.hibernate.ResponseTypeDao;
-import org.akaza.openclinica.dao.hibernate.SectionDao;
-import org.akaza.openclinica.dao.hibernate.StudyDao;
-import org.akaza.openclinica.dao.hibernate.UserAccountDao;
-import org.akaza.openclinica.dao.hibernate.VersioningMapDao;
+import org.akaza.openclinica.dao.hibernate.*;
 import org.akaza.openclinica.domain.Status;
-import org.akaza.openclinica.domain.datamap.CrfBean;
-import org.akaza.openclinica.domain.datamap.CrfVersion;
-import org.akaza.openclinica.domain.datamap.FormLayout;
-import org.akaza.openclinica.domain.datamap.FormLayoutMedia;
-import org.akaza.openclinica.domain.datamap.Item;
-import org.akaza.openclinica.domain.datamap.ItemDataType;
-import org.akaza.openclinica.domain.datamap.ItemFormMetadata;
-import org.akaza.openclinica.domain.datamap.ItemGroup;
-import org.akaza.openclinica.domain.datamap.ItemGroupMetadata;
-import org.akaza.openclinica.domain.datamap.ResponseSet;
-import org.akaza.openclinica.domain.datamap.ResponseType;
-import org.akaza.openclinica.domain.datamap.Section;
-import org.akaza.openclinica.domain.datamap.StudyEnvEnum;
-import org.akaza.openclinica.domain.datamap.VersioningMap;
-import org.akaza.openclinica.domain.datamap.VersioningMapId;
+import org.akaza.openclinica.domain.datamap.*;
 import org.akaza.openclinica.domain.user.UserAccount;
-import org.akaza.openclinica.domain.xform.XformContainer;
-import org.akaza.openclinica.domain.xform.XformGroup;
-import org.akaza.openclinica.domain.xform.XformItem;
-import org.akaza.openclinica.domain.xform.XformParser;
-import org.akaza.openclinica.domain.xform.XformParserHelper;
+import org.akaza.openclinica.domain.xform.*;
 import org.akaza.openclinica.service.dto.FormVersion;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.fileupload.FileItem;
@@ -61,23 +20,22 @@ import org.apache.commons.lang.exception.ExceptionUtils;
 import org.openclinica.ns.odm_ext_v130.v31.OCodmComplexTypeDefinitionFormLayoutDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.Errors;
 import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+import static org.apache.commons.collections4.ListUtils.emptyIfNull;
 
 @Service
 public class XformMetaDataService {
@@ -87,6 +45,7 @@ public class XformMetaDataService {
     public static final String INSTANCE_SUFFIX = "instance.tpl";
     public static final String INSTANCEQUERIES_SUFFIX = "instance-queries.tpl";
     public static final String FORMQUERIES_SUFFIX = "form-queries.xml";
+    public static final String FORMPARTICIPATE_SUFFIX = "form-participate.xml";
     public static final String FORMPREVIEW_SUFFIX = "form-preview.xml";
     public static final String XLS_SUFFIX = ".xls";
 
@@ -98,84 +57,81 @@ public class XformMetaDataService {
     public static final String DATETIME_DATATYPE = "dateTime";
     public static String VERSION = "data_group.json";
 
-    @Autowired
     private StudyDao studyDao;
 
-    @Autowired
     private CrfDao crfDao;
-
-    @Autowired
     private SectionDao sectionDao;
-
-    @Autowired
     private UserAccountDao userDao;
-
-    @Autowired
     private CrfVersionDao crfVersionDao;
-
-    @Autowired
     private FormLayoutDao formLayoutDao;
-
-    @Autowired
     private FormLayoutMediaDao formLayoutMediaDao;
-
-    @Autowired
     private ItemGroupDao itemGroupDao;
-
-    @Autowired
     private ItemGroupMetadataDao itemGroupMetadataDao;
-
-    @Autowired
     private VersioningMapDao versioningMapDao;
-
-    @Autowired
     private ItemFormMetadataDao itemFormMetadataDao;
-
-    @Autowired
     private ItemDao itemDao;
-
-    @Autowired
     private ItemDataTypeDao itemDataTypeDao;
-
-    @Autowired
     private ItemReferenceTypeDao itemRefTypeDao;
-
-    @Autowired
     private ResponseTypeDao responseTypeDao;
-
-    @Autowired
     private ResponseSetService responseSetService;
-
-    @Autowired
     private XformParserHelper xformParserHelper;
-
-    @Autowired
     private XformParser xformParser;
-
     private CoreResources coreResources;
+    private ResponseSetDao responseSetDao;
 
-    @Transactional
+
+    public XformMetaDataService(StudyDao studyDao, CrfDao crfDao, SectionDao sectionDao, UserAccountDao userDao, CrfVersionDao crfVersionDao, FormLayoutDao formLayoutDao, FormLayoutMediaDao formLayoutMediaDao, ItemGroupDao itemGroupDao, ItemGroupMetadataDao itemGroupMetadataDao, VersioningMapDao versioningMapDao, ItemFormMetadataDao itemFormMetadataDao, ItemDao itemDao, ItemDataTypeDao itemDataTypeDao, ItemReferenceTypeDao itemRefTypeDao, ResponseTypeDao responseTypeDao, ResponseSetService responseSetService, XformParserHelper xformParserHelper, XformParser xformParser, CoreResources coreResources, ResponseSetDao responseSetDao) {
+        this.studyDao = studyDao;
+        this.crfDao = crfDao;
+        this.sectionDao = sectionDao;
+        this.userDao = userDao;
+        this.crfVersionDao = crfVersionDao;
+        this.formLayoutDao = formLayoutDao;
+        this.formLayoutMediaDao = formLayoutMediaDao;
+        this.itemGroupDao = itemGroupDao;
+        this.itemGroupMetadataDao = itemGroupMetadataDao;
+        this.versioningMapDao = versioningMapDao;
+        this.itemFormMetadataDao = itemFormMetadataDao;
+        this.itemDao = itemDao;
+        this.itemDataTypeDao = itemDataTypeDao;
+        this.itemRefTypeDao = itemRefTypeDao;
+        this.responseTypeDao = responseTypeDao;
+        this.responseSetService = responseSetService;
+        this.xformParserHelper = xformParserHelper;
+        this.xformParser = xformParser;
+        this.coreResources = coreResources;
+        this.responseSetDao = responseSetDao;
+    }
+
     public FormLayout createCRFMetaData(CrfMetaDataObject cmdObject) throws Exception {
 
         CrfVersion crfVersion = null;
         FormLayout formLayout = null;
         CrfBean crfBean = null;
         Section section = null;
+        boolean formExist = false;
+
+        List<Item> items = null;
+        List<ResponseSet> responseSets = null;
+        List<ItemFormMetadata> ifms = null;
+        List<ItemGroupMetadata> igms = null;
+        List<VersioningMap> vms = null;
+        List<ItemGroup> itemGroups = null;
 
         crfBean = (CrfBean) crfDao.findByOcOID(cmdObject.crf.getOcoid());
         if (crfBean != null) {
-            crfBean.setUpdateId(cmdObject.ub.getId());
+            formExist = true;
+            crfBean.setUpdateId(cmdObject.ub.getUserId());
             crfBean.setName(cmdObject.crf.getName());
             crfBean.setDateUpdated(new Date());
             crfBean = crfDao.saveOrUpdate(crfBean);
-
             formLayout = formLayoutDao.findByOcOID(cmdObject.version.getOcoid());
             if (formLayout == null) {
                 formLayout = new FormLayout();
                 formLayout = populateFormLayout(formLayout, crfBean, cmdObject);
                 formLayout = formLayoutDao.saveOrUpdate(formLayout);
             } else if (!formLayout.getStatus().equals(Status.AVAILABLE)) {
-                UserAccount userAccount = userDao.findById(cmdObject.ub.getId());
+                UserAccount userAccount = userDao.findById(cmdObject.ub.getUserId());
                 formLayout.setStatus(Status.AVAILABLE);
                 formLayout.setUserAccount(userAccount);
                 formLayout.setDateCreated(new Date());
@@ -185,6 +141,12 @@ public class XformMetaDataService {
             crfVersion = crfVersionDao.findAllByCrfId(crfBean.getCrfId()).get(0);
             section = sectionDao.findByCrfVersionOrdinal(crfVersion.getCrfVersionId(), 1);
 
+            items = itemDao.findAllByCrfVersion(crfVersion.getCrfVersionId());
+            responseSets = responseSetDao.findAllByVersion(crfVersion.getCrfVersionId());
+            ifms = itemFormMetadataDao.findAllByCrfVersion(crfVersion.getCrfVersionId());
+            igms = itemGroupMetadataDao.findAllByCrfVersion(crfVersion.getCrfVersionId());
+            vms = versioningMapDao.findAllByVersionId(crfVersion.getCrfVersionId());
+            itemGroups = itemGroupDao.findByCrfVersionId(crfVersion.getCrfVersionId());
         } else {
             crfBean = new CrfBean();
             crfBean = populateCrf(crfBean, cmdObject);
@@ -210,21 +172,30 @@ public class XformMetaDataService {
                 section = sectionDao.findByCrfVersionOrdinal(crfVersion.getCrfVersionId(), 1);
             }
         }
-        createGroups(cmdObject.container, crfBean, crfVersion, formLayout, section, cmdObject.ub, cmdObject.errors);
+        createGroups(cmdObject.container, crfBean, crfVersion, formLayout, section, cmdObject.ub, cmdObject.errors, formExist, items, responseSets, ifms, igms, vms, itemGroups);
+
         return formLayout;
     }
 
-    private void createGroups(XformContainer container, CrfBean crf, CrfVersion crfVersion, FormLayout formLayout, Section section, UserAccountBean ub,
-            Errors errors) throws Exception {
+    private void createGroups(XformContainer container, CrfBean crf, CrfVersion crfVersion, FormLayout formLayout, Section section, UserAccount ub,
+                              Errors errors, boolean formExist, List<Item> items, List<ResponseSet> responseSets, List<ItemFormMetadata> ifms, List<ItemGroupMetadata> igms, List<VersioningMap> vms, List<ItemGroup> itemGroups) throws Exception {
+
         Integer itemOrdinal = 1;
         ArrayList<String> usedGroupOids = new ArrayList<String>();
         ArrayList<String> usedItemOids = new ArrayList<String>();
 
         // for (Group htmlGroup : htmlGroups) {
         for (XformGroup xformGroup : container.getGroups()) {
+            ItemGroup itemGroup = null;
 
-            // XformGroup xformGroup = container.findGroupByRef(htmlGroup.getRef());
-            ItemGroup itemGroup = itemGroupDao.findByNameCrfId(xformGroup.getGroupName(), crf);
+            if (formExist) {
+                for (ItemGroup ig : emptyIfNull(itemGroups)) {
+                    if (ig.getOcOid().equals(xformGroup.getGroupOid())) {
+                        itemGroup = ig;
+                        break;
+                    }
+                }
+            }
 
             if (itemGroup == null) {
                 itemGroup = new ItemGroup();
@@ -232,14 +203,13 @@ public class XformMetaDataService {
                 itemGroup.setLayoutGroupPath(xformGroup.getGroupPath());
                 itemGroup.setCrf(crf);
                 itemGroup.setStatus(org.akaza.openclinica.domain.Status.AVAILABLE);
-                itemGroup.setUserAccount(userDao.findById(ub.getId()));
+                itemGroup.setUserAccount(userDao.findById(ub.getUserId()));
                 itemGroup.setOcOid(xformGroup.getGroupOid());
                 usedGroupOids.add(itemGroup.getOcOid());
-                itemGroup = itemGroupDao.saveOrUpdate(itemGroup);
             } else {
                 itemGroup.setName(xformGroup.getGroupName());
-                itemGroup = itemGroupDao.saveOrUpdate(itemGroup);
             }
+            itemGroup = itemGroupDao.saveOrUpdate(itemGroup);
             boolean isRepeating = xformGroup.isRepeating();
             // Create Item specific DB entries: item,
             // response_set,item_form_metadata,versioning_map,item_group_metadata
@@ -247,30 +217,51 @@ public class XformMetaDataService {
 
             for (XformItem xformItem : xformGroup.getItems()) {
 
-                Item item = createItem(xformGroup, xformItem, crf, ub, usedItemOids, errors);
+                Item item = createItem(xformGroup, xformItem, crf, ub, usedItemOids, errors, formExist, items);
                 if (item != null) {
                     ResponseType responseType = getResponseType(xformItem);
-                    ResponseSet responseSet = responseSetService.getResponseSet(xformItem, crfVersion, responseType, item, errors);
+                    ResponseSet responseSet = responseSetService.getResponseSet(xformItem, crfVersion, responseType, item, errors, responseSets);
                     // add if statement
-                    ItemFormMetadata ifmd = itemFormMetadataDao.findByItemCrfVersion(item.getItemId(), crfVersion.getCrfVersionId());
+
+                    ItemFormMetadata ifmd = null;
+                    for (ItemFormMetadata ifm : emptyIfNull(ifms)) {
+                        if (ifm.getItem().getItemId() == item.getItemId()) {
+                            ifmd = ifm;
+                            break;
+                        }
+                    }
                     if (ifmd == null) {
-                        ifmd = createItemFormMetadata(xformItem, item, responseSet, section, crfVersion, itemOrdinal);
+                        createItemFormMetadata(xformItem, item, responseSet, section, crfVersion, itemOrdinal);
                     } else {
                         ifmd.setRequired(xformItem.isRequired());
                         ifmd.setLeftItemText(xformItem.getLeftItemText());
                         ifmd.setItem(item);
                         ifmd.setResponseSet(responseSet);
-                        ifmd = itemFormMetadataDao.saveOrUpdate(ifmd);
+                        itemFormMetadataDao.saveOrUpdate(ifmd);
                     }
-                    ArrayList<VersioningMap> vm = versioningMapDao.findByVersionIdFormLayoutIdAndItemId(crfVersion.getCrfVersionId(),
-                            formLayout.getFormLayoutId(), item.getItemId(), itemOrdinal);
-                    if (vm.size() == 0) {
+                    VersioningMap vm = null;
+
+                    for (VersioningMap v : emptyIfNull(vms)) {
+                        if (v.getVersionMapId().getFormLayoutId() == formLayout.getFormLayoutId() && v.getVersionMapId().getItemId() == item.getItemId()) {
+                            vm = v;
+                            break;
+                        }
+                    }
+
+                    if (vm == null) {
                         createVersioningMap(crfVersion, item, formLayout, xformItem.getItemOrderInForm());
                     }
                     //
-                    ItemGroupMetadata igmd = itemGroupMetadataDao.findByItemCrfVersion(item.getItemId(), crfVersion.getCrfVersionId());
+                    ItemGroupMetadata igmd = null;
+
+                    for (ItemGroupMetadata igm : emptyIfNull(igms)) {
+                        if (igm.getItem().getItemId() == item.getItemId()) {
+                            igmd = igm;
+                            break;
+                        }
+                    }
                     if (igmd == null) {
-                        igmd = createItemGroupMetadata(item, crfVersion, itemGroup, isRepeating, itemOrdinal);
+                        createItemGroupMetadata(item, crfVersion, itemGroup, isRepeating, itemOrdinal);
                     }
                     itemOrdinal++;
 
@@ -278,7 +269,6 @@ public class XformMetaDataService {
 
             }
         }
-
     }
 
     private ItemGroupMetadata createItemGroupMetadata(Item item, CrfVersion crfVersion, ItemGroup itemGroup, boolean isRepeating, Integer itemOrdinal) {
@@ -319,7 +309,7 @@ public class XformMetaDataService {
     }
 
     private ItemFormMetadata createItemFormMetadata(XformItem xformItem, Item item, ResponseSet responseSet, Section section, CrfVersion crfVersion,
-            Integer itemOrdinal) {
+                                                    Integer itemOrdinal) {
         ItemFormMetadata itemFormMetadata = new ItemFormMetadata();
         itemFormMetadata.setCrfVersionId(crfVersion.getCrfVersionId());
         itemFormMetadata.setResponseSet(responseSet);
@@ -346,15 +336,20 @@ public class XformMetaDataService {
         return itemFormMetadata;
     }
 
-    private Item createItem(XformGroup xformGroup, XformItem xformItem, CrfBean crf, UserAccountBean ub, ArrayList<String> usedItemOids, Errors errors)
+    private Item createItem(XformGroup xformGroup, XformItem xformItem, CrfBean crf, UserAccount ub, ArrayList<String> usedItemOids, Errors errors, boolean formExist, List<Item> items)
             throws Exception {
+        Item item = null;
         ItemDataType newDataType = getItemDataType(xformItem);
 
-        Item item = itemDao.findByNameCrfId(xformItem.getItemName(), crf.getCrfId());
-        if (item != null) {
-            item.setDescription(xformItem.getItemDescription());
-            item = itemDao.saveOrUpdate(item);
-        } else {
+        if (formExist) {
+            for (Item i : emptyIfNull(items)) {
+                if (i.getOcOid().equals(xformItem.getItemOid())) {
+                    item = i;
+                    break;
+                }
+            }
+        }
+        if (item == null) {
             item = new Item();
             item.setName(xformItem.getItemName());
             item.setDescription(xformItem.getItemDescription());
@@ -363,11 +358,14 @@ public class XformMetaDataService {
             item.setItemDataType(newDataType);
             item.setItemReferenceType(itemRefTypeDao.findByItemReferenceTypeId(1));
             item.setStatus(org.akaza.openclinica.domain.Status.AVAILABLE);
-            item.setUserAccount(userDao.findById(ub.getId()));
+            item.setUserAccount(userDao.findById(ub.getUserId()));
             item.setOcOid(xformItem.getItemOid());
             usedItemOids.add(item.getOcOid());
-            item = itemDao.saveOrUpdate(item);
+        } else {
+            item.setDescription(xformItem.getItemDescription());
         }
+        item = itemDao.saveOrUpdate(item);
+
 
         return item;
     }
@@ -427,7 +425,7 @@ public class XformMetaDataService {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_OCTET_STREAM));
         HttpEntity<String> entity = new HttpEntity<String>(headers);
-        ResponseEntity<byte[]> response = restTemplate.exchange(fileLink, HttpMethod.GET, entity, byte[].class, "1");
+        ResponseEntity<byte[]> response = restTemplate.exchange(replaceUrlWithServiceGatewayURL(fileLink), HttpMethod.GET, entity, byte[].class, "1");
         FileItem fileItem = null;
         if (response.getStatusCode() == HttpStatus.OK) {
             String fileName = "";
@@ -459,12 +457,13 @@ public class XformMetaDataService {
         return fileItem;
     }
 
-    public ExecuteIndividualCrfObject executeIndividualCrf(ExecuteIndividualCrfObject eicObject, Set<Long> publishedVersions) {
+    public Set<Long> executeIndividualCrf(ExecuteIndividualCrfObject eicObject, Set<Long> publishedVersions) {
         for (OCodmComplexTypeDefinitionFormLayoutDef formLayoutDef : eicObject.formLayoutDefs) {
-
             List<String> fileLinks = null;
             String vForm = "";
             RestTemplate rest = new RestTemplate();
+            rest.getMessageConverters()
+                    .add(0, new StringHttpMessageConverter(Charset.forName("UTF-8")));
             if (eicObject.form != null) {
                 List<FormVersion> versions = eicObject.form.getVersions();
                 for (FormVersion version : versions) {
@@ -472,7 +471,9 @@ public class XformMetaDataService {
                         fileLinks = version.getFileLinks();
                         for (String fileLink : fileLinks) {
                             if (fileLink.endsWith(VERSION)) {
-                                vForm = rest.getForObject(fileLink, String.class);
+
+                                vForm = rest.getForObject(replaceUrlWithServiceGatewayURL(fileLink), String.class);
+
                                 break;
                             }
                         }
@@ -500,8 +501,7 @@ public class XformMetaDataService {
                         // Save meta-data in database
                         saveFormMetadata(eicObject, version, eicObject.container, formLayoutDef, fileLinks);
                         StudyEnvEnum existingEnv = version.getPublishedEnvType();
-                        StudyEnvEnum publishingEnv = eicObject.currentStudy.getEnvType();
-
+                        StudyEnvEnum publishingEnv = eicObject.study.getEnvType();
                         if ((publishingEnv.equals(StudyEnvEnum.TEST) && existingEnv.equals(StudyEnvEnum.NOT_PUBLISHED))
                                 || (publishingEnv.equals(StudyEnvEnum.PROD) && !existingEnv.equals(StudyEnvEnum.PROD))) {
                             publishedVersions.add(version.getId());
@@ -511,18 +511,19 @@ public class XformMetaDataService {
                 }
             }
         }
-        return eicObject;
+
+        return publishedVersions;
     }
 
     public void saveFormMetadata(ExecuteIndividualCrfObject eicObj, FormVersion version, XformContainer container,
-            OCodmComplexTypeDefinitionFormLayoutDef formLayoutDef, List<String> fileLinks) {
-
+                                 OCodmComplexTypeDefinitionFormLayoutDef formLayoutDef, List<String> fileLinks) {
         try {
             try {
                 FormLayout formLayout = createCRFMetaData(
-                        new CrfMetaDataObject(eicObj.form, version, container, eicObj.getCurrentStudy(), eicObj.ub, eicObj.errors, formLayoutDef.getURL()));
-                saveFormArtifactsInOCDataDirectory(fileLinks, eicObj.getCurrentStudy(), eicObj.form.getOcoid(), version.getOcoid(), formLayout);
-                saveMediaFiles(fileLinks, eicObj.getCurrentStudy(), eicObj.form.getOcoid(), formLayout);
+                        new CrfMetaDataObject(eicObj.form, version, container, eicObj.getStudy(), eicObj.ub, eicObj.errors, formLayoutDef.getURL()));
+                saveFormArtifactsInOCDataDirectory(fileLinks, eicObj.getStudy(), eicObj.form.getOcoid(), version.getOcoid(), formLayout);
+                logger.info("After Saving Form Artifacts");
+                saveMediaFiles(fileLinks, eicObj.getStudy(), eicObj.form.getOcoid(), formLayout);
             } catch (Exception e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -531,12 +532,14 @@ public class XformMetaDataService {
             logger.error("Error encountered while saving CRF: " + e.getMessage());
             logger.error(ExceptionUtils.getStackTrace(e));
         }
+
+
     }
 
-    public void saveFormArtifactsInOCDataDirectory(List<String> fileLinks, StudyBean study, String crfOid, String formLayoutOid, FormLayout formLayout)
+    public void saveFormArtifactsInOCDataDirectory(List<String> fileLinks, Study study, String crfOid, String formLayoutOid, FormLayout formLayout)
             throws IOException {
         // Create the directory structure for saving the media
-        String dir = Utils.getFilePath() + Utils.getCrfMediaPath(study.getOid(), crfOid, formLayoutOid);
+        String dir = Utils.getFilePath() + Utils.getCrfMediaPath(study.getOc_oid(), study.getFilePath(), crfOid, formLayoutOid);
         if (!new File(dir).exists()) {
             new File(dir).mkdirs();
             logger.debug("Made the directory " + dir);
@@ -550,6 +553,8 @@ public class XformMetaDataService {
             }
             saveAttachedFiles(fileLink, dir, fileName, formLayout);
         }
+
+
     }
 
     public void saveAttachedFiles(String uri, String dir, String fileName, FormLayout formLayout) throws IOException {
@@ -559,7 +564,7 @@ public class XformMetaDataService {
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_OCTET_STREAM));
         HttpEntity<String> entity = new HttpEntity<String>(headers);
 
-        ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class, "1");
+        ResponseEntity<byte[]> response = restTemplate.exchange(replaceUrlWithServiceGatewayURL(uri), HttpMethod.GET, entity, byte[].class, "1");
 
         File file = new File(dir + File.separator + fileName);
         if (response.getStatusCode().equals(HttpStatus.OK)) {
@@ -572,16 +577,20 @@ public class XformMetaDataService {
             String hash = DigestUtils.md5Hex(xformOutput);
             if (formLayout.getXform() == null || !formLayout.getXform().equals(hash)) {
                 formLayout.setXform(DigestUtils.md5Hex(xformOutput));
+                formLayout.setExternalInstance("");
                 formLayoutDao.saveOrUpdate(formLayout);
             }
         }
+
+
+        logger.info("Form name:{} version:{} and Filename: {} wrote in OC directory", formLayout.getCrf().getName(), formLayout.getName(), fileName);
     }
 
     private FormLayout populateFormLayout(FormLayout formLayout, CrfBean crfBean, CrfMetaDataObject cmdObject) {
         formLayout.setName(cmdObject.version.getName());
         formLayout.setDescription(cmdObject.version.getDescription());
         formLayout.setCrf(crfBean);
-        formLayout.setUserAccount(userDao.findById(cmdObject.ub.getId()));
+        formLayout.setUserAccount(userDao.findById(cmdObject.ub.getUserId()));
         formLayout.setStatus(org.akaza.openclinica.domain.Status.AVAILABLE);
         formLayout.setRevisionNotes(cmdObject.version.getDescription());
         formLayout.setOcOid(cmdObject.version.getOcoid());
@@ -595,11 +604,11 @@ public class XformMetaDataService {
     private CrfBean populateCrf(CrfBean crfBean, CrfMetaDataObject cmdObject) {
         crfBean.setName(cmdObject.crf.getName());
         crfBean.setDescription(cmdObject.crf.getDescription());
-        crfBean.setUserAccount(userDao.findById(cmdObject.ub.getId()));
+        crfBean.setUserAccount(userDao.findById(cmdObject.ub.getUserId()));
         crfBean.setStatus(org.akaza.openclinica.domain.Status.AVAILABLE);
-        crfBean.setStudy(studyDao.findById(cmdObject.currentStudy.getId()));
+        crfBean.setStudy(studyDao.findById(cmdObject.study.getStudyId()));
         crfBean.setOcOid(cmdObject.crf.getOcoid());
-        crfBean.setUpdateId(cmdObject.ub.getId());
+        crfBean.setUpdateId(cmdObject.ub.getUserId());
         crfBean.setDateUpdated(new Date());
         return crfBean;
     }
@@ -608,7 +617,7 @@ public class XformMetaDataService {
         crfVersion.setName(cmdObject.version.getName());
         crfVersion.setDescription(cmdObject.version.getDescription());
         crfVersion.setCrf(crfBean);
-        crfVersion.setUserAccount(userDao.findById(cmdObject.ub.getId()));
+        crfVersion.setUserAccount(userDao.findById(cmdObject.ub.getUserId()));
         crfVersion.setStatus(org.akaza.openclinica.domain.Status.AVAILABLE);
         crfVersion.setRevisionNotes(cmdObject.version.getDescription());
         crfVersion.setOcOid(crfVersionDao.getValidOid(new CrfVersion(), crfBean.getOcOid(), crfVersion.getName()));
@@ -623,21 +632,22 @@ public class XformMetaDataService {
         section.setSubtitle("");
         section.setPageNumberLabel("");
         section.setOrdinal(1);
-        section.setUserAccount(userDao.findById(cmdObject.ub.getId())); // not null
+        section.setUserAccount(userDao.findById(cmdObject.ub.getUserId())); // not null
         section.setBorders(0);
         return section;
     }
 
-    private void saveMediaFiles(List<String> fileLinks, StudyBean study, String crfOid, FormLayout formLayout) throws IOException {
+    private void saveMediaFiles(List<String> fileLinks, Study study, String crfOid, FormLayout formLayout) throws IOException {
         // Create the directory structure for saving the media
-        String dir = Utils.getCrfMediaPath(study.getOid(), crfOid, formLayout.getOcOid());
+        String dir = Utils.getCrfMediaPath(study.getOc_oid(), study.getFilePath(), crfOid, formLayout.getOcOid());
         for (String fileLink : fileLinks) {
+        logger.info("Saving media file {}", fileLink);
             String fileName = "";
             int startIndex = fileLink.lastIndexOf('/');
             if (startIndex != -1) {
                 fileName = fileLink.substring(startIndex + 1);
             }
-            if (!fileLink.endsWith(FORM_SUFFIX) && !fileLink.endsWith(INSTANCEQUERIES_SUFFIX) && !fileLink.endsWith(FORMQUERIES_SUFFIX)
+            if (!fileLink.endsWith(FORM_SUFFIX) && !fileLink.endsWith(INSTANCEQUERIES_SUFFIX) && !fileLink.endsWith(FORMQUERIES_SUFFIX) && !fileLink.endsWith(FORMPARTICIPATE_SUFFIX)
                     && !fileLink.endsWith(XLS_SUFFIX) && !fileLink.endsWith(INSTANCE_SUFFIX) && !fileLink.endsWith(VERSION)
                     && !fileLink.endsWith(FORMPREVIEW_SUFFIX)) {
 
@@ -652,5 +662,14 @@ public class XformMetaDataService {
                 }
             }
         }
+
     }
+
+    private String replaceUrlWithServiceGatewayURL(String url) {
+        String updatedURL = CoreResources.getSBSFieldFormservice() + url.split("api")[1];
+        return updatedURL;
+
+    }
+
+
 }

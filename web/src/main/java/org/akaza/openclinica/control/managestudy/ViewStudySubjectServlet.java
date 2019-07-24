@@ -7,17 +7,6 @@
  */
 package org.akaza.openclinica.control.managestudy;
 
-import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-
-import javax.sql.DataSource;
-
 import org.akaza.openclinica.bean.admin.AuditEventBean;
 import org.akaza.openclinica.bean.admin.CRFBean;
 import org.akaza.openclinica.bean.admin.StudyEventAuditBean;
@@ -27,47 +16,34 @@ import org.akaza.openclinica.bean.core.Status;
 import org.akaza.openclinica.bean.core.SubjectEventStatus;
 import org.akaza.openclinica.bean.login.StudyUserRoleBean;
 import org.akaza.openclinica.bean.login.UserAccountBean;
-import org.akaza.openclinica.bean.managestudy.DiscrepancyNoteBean;
-import org.akaza.openclinica.bean.managestudy.DisplayEventDefinitionCRFBean;
-import org.akaza.openclinica.bean.managestudy.DisplayStudyEventBean;
-import org.akaza.openclinica.bean.managestudy.EventDefinitionCRFBean;
-import org.akaza.openclinica.bean.managestudy.StudyBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
-import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
-import org.akaza.openclinica.bean.submit.CRFVersionBean;
-import org.akaza.openclinica.bean.submit.DisplayEventCRFBean;
-import org.akaza.openclinica.bean.submit.EventCRFBean;
-import org.akaza.openclinica.bean.submit.FormLayoutBean;
-import org.akaza.openclinica.bean.submit.SubjectBean;
+import org.akaza.openclinica.bean.managestudy.*;
+import org.akaza.openclinica.bean.service.*;
+import org.akaza.openclinica.bean.submit.*;
+import org.akaza.openclinica.control.SpringServletAccess;
 import org.akaza.openclinica.control.core.SecureController;
 import org.akaza.openclinica.control.form.FormProcessor;
 import org.akaza.openclinica.control.submit.CreateNewStudyEventServlet;
 import org.akaza.openclinica.control.submit.SubmitDataServlet;
-import org.akaza.openclinica.core.form.StringUtil;
 import org.akaza.openclinica.dao.admin.AuditEventDAO;
 import org.akaza.openclinica.dao.admin.CRFDAO;
+import org.akaza.openclinica.dao.hibernate.StudyParameterValueDao;
 import org.akaza.openclinica.dao.login.UserAccountDAO;
-import org.akaza.openclinica.dao.managestudy.DiscrepancyNoteDAO;
-import org.akaza.openclinica.dao.managestudy.EventDefinitionCRFDAO;
-import org.akaza.openclinica.dao.managestudy.StudyDAO;
-import org.akaza.openclinica.dao.managestudy.StudyEventDAO;
-import org.akaza.openclinica.dao.managestudy.StudyEventDefinitionDAO;
-import org.akaza.openclinica.dao.managestudy.StudySubjectDAO;
+import org.akaza.openclinica.dao.managestudy.*;
 import org.akaza.openclinica.dao.service.StudyParameterValueDAO;
-import org.akaza.openclinica.dao.submit.CRFVersionDAO;
-import org.akaza.openclinica.dao.submit.EventCRFDAO;
-import org.akaza.openclinica.dao.submit.FormLayoutDAO;
-import org.akaza.openclinica.dao.submit.ItemDataDAO;
-import org.akaza.openclinica.dao.submit.SubjectDAO;
-import org.akaza.openclinica.dao.submit.SubjectGroupMapDAO;
+import org.akaza.openclinica.dao.submit.*;
+import org.akaza.openclinica.domain.datamap.StudyParameterValue;
 import org.akaza.openclinica.service.crfdata.HideCRFManager;
 import org.akaza.openclinica.service.managestudy.StudySubjectService;
 import org.akaza.openclinica.view.Page;
 import org.akaza.openclinica.web.InsufficientPermissionException;
 import org.akaza.openclinica.web.bean.DisplayStudyEventRow;
 import org.akaza.openclinica.web.bean.EntityBeanTable;
+import org.apache.commons.lang.StringUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
+
+import javax.sql.DataSource;
+import java.net.URLEncoder;
+import java.util.*;
 
 /**
  * @author jxu
@@ -76,7 +52,7 @@ import org.springframework.web.context.support.WebApplicationContextUtils;
  */
 public class ViewStudySubjectServlet extends SecureController {
     // The study subject has an existing discrepancy note related to their
-    // unique identifier; this
+    // person id; this
     // value will be saved as a request attribute
     public final static String HAS_UNIQUE_ID_NOTE = "hasUniqueIDNote";
     // The study subject has an existing discrepancy note related to their date
@@ -99,6 +75,7 @@ public class ViewStudySubjectServlet extends SecureController {
     public final static String GENDER_NOTE = "genderNote";
     // request attribute for a discrepancy note
     public final static String ENROLLMENT_NOTE = "enrollmentNote";
+    public final static String COMMON = "common";
 
     /**
      * Checks whether the user has the right permission to proceed function
@@ -108,7 +85,7 @@ public class ViewStudySubjectServlet extends SecureController {
         // YW 10-18-2007, if a study subject with passing parameter does not
         // belong to user's studies, it can not be viewed
         // mayAccess();
-        getCrfLocker().unlockAllForUser(ub.getId());
+        getEventCrfLocker().unlockAllForUser(ub.getId());
         if (ub.isSysAdmin()) {
             return;
         }
@@ -155,7 +132,9 @@ public class ViewStudySubjectServlet extends SecureController {
 
             de.setMaximumSampleOrdinal(sedao.getMaxSampleOrdinal(sed, studySubject));
 
-            displayEvents.add(de);
+            Status status = de.getStudyEvent().getStatus();
+            if (status == Status.AVAILABLE || status == Status.AUTO_DELETED)
+                displayEvents.add(de);
             // event.setEventCRFs(createAllEventCRFs(eventCRFs,
             // eventDefinitionCRFs));
 
@@ -173,6 +152,11 @@ public class ViewStudySubjectServlet extends SecureController {
         int studySubId = fp.getInt("id", true);// studySubjectId
         String from = fp.getString("from");
 
+        int parentStudyId = currentStudy.getParentStudyId() > 0 ? currentStudy.getParentStudyId() : currentStudy.getId();
+        StudyParameterValueDao studyParameterValueDao = (StudyParameterValueDao) SpringServletAccess.getApplicationContext(context).getBean("studyParameterValueDao");
+        StudyParameterValue parentSPV = studyParameterValueDao.findByStudyIdParameter(parentStudyId, "subjectIdGeneration");
+        currentStudy.getStudyParameterConfig().setSubjectIdGeneration(parentSPV.getValue());
+
         String module = fp.getString(MODULE);
         request.setAttribute(MODULE, module);
 
@@ -186,7 +170,7 @@ public class ViewStudySubjectServlet extends SecureController {
             addPageMessage(respage.getString("please_choose_a_subject_to_view"));
             forwardPage(Page.LIST_STUDY_SUBJECTS);
         } else {
-            if (!StringUtil.isBlank(from)) {
+            if (!StringUtils.isBlank(from)) {
                 request.setAttribute("from", from); // form ListSubject or
                 // ListStudySubject
             } else {
@@ -272,7 +256,12 @@ public class ViewStudySubjectServlet extends SecureController {
              */
             // YW 11-26-2007 <<
             StudyParameterValueDAO spvdao = new StudyParameterValueDAO(sm.getDataSource());
-            study.getStudyParameterConfig().setCollectDob(spvdao.findByHandleAndStudy(studyId, "collectDob").getValue());
+            if (isParentStudy) {
+                study.getStudyParameterConfig().setCollectDob(spvdao.findByHandleAndStudy(studyId, "collectDob").getValue());
+            } else {
+                study.getStudyParameterConfig().setCollectDob(spvdao.findByHandleAndStudy(study.getParentStudyId(), "collectDob").getValue());
+            }
+
             // YW >>
             request.setAttribute("subjectStudy", study);
 
@@ -293,6 +282,14 @@ public class ViewStudySubjectServlet extends SecureController {
             StudySubjectService studySubjectService = (StudySubjectService) WebApplicationContextUtils.getWebApplicationContext(getServletContext())
                     .getBean("studySubjectService");
             List<DisplayStudyEventBean> displayEvents = studySubjectService.getDisplayStudyEventsForStudySubject(studySub, ub, currentRole);
+            List<DisplayStudyEventBean> tempList = new ArrayList<>();
+            for (DisplayStudyEventBean displayEvent : displayEvents) {
+                if (!displayEvent.getStudyEvent().getStudyEventDefinition().getType().equals(COMMON)) {
+                    tempList.add(displayEvent);
+                }
+            }
+            displayEvents = new ArrayList(tempList);
+
             for (int i = 0; i < displayEvents.size(); i++) {
                 DisplayStudyEventBean decb = displayEvents.get(i);
                 if (!(currentRole.isDirector() || currentRole.isCoordinator()) && decb.getStudyEvent().getSubjectEventStatus().isLocked()) {
@@ -311,13 +308,14 @@ public class ViewStudySubjectServlet extends SecureController {
             // date, desc
             ArrayList allEventRows = DisplayStudyEventRow.generateRowsFromBeans(displayEvents);
 
-            String[] columns = { resword.getString("event") + " (" + resword.getString("occurrence_number") + ")", resword.getString("start_date1"), resword.getString("status"), resword.getString("event_actions"), resword.getString("CRFs") };
+            String[] columns = { resword.getString("event") + " (" + resword.getString("occurrence_number") + ")", resword.getString("start_date1"),
+                    resword.getString("status"), resword.getString("event_actions"), resword.getString("CRFs") };
             table.setColumns(new ArrayList(Arrays.asList(columns)));
             table.hideColumnLink(4);
             table.hideColumnLink(5);
             if (!"removed".equalsIgnoreCase(studySub.getStatus().getName()) && !"auto-removed".equalsIgnoreCase(studySub.getStatus().getName())) {
                 if (currentStudy.getStatus().isAvailable() && !currentRole.getRole().equals(Role.MONITOR)) {
-                    table.addLink(resword.getString("add_new_event"),
+                    table.addLink(resword.getString("add_new"),
                             "CreateNewStudyEvent?" + CreateNewStudyEventServlet.INPUT_STUDY_SUBJECT_ID_FROM_VIEWSUBJECT + "=" + studySub.getId());
                 }
             }
@@ -348,12 +346,12 @@ public class ViewStudySubjectServlet extends SecureController {
                 sea.setDefinition(sed);
                 String old = avb.getOldValue().trim();
                 try {
-                    if (!StringUtil.isBlank(old)) {
+                    if (!StringUtils.isBlank(old)) {
                         SubjectEventStatus oldStatus = SubjectEventStatus.get(new Integer(old).intValue());
                         sea.setOldSubjectEventStatus(oldStatus);
                     }
                     String newValue = avb.getNewValue().trim();
-                    if (!StringUtil.isBlank(newValue)) {
+                    if (!StringUtils.isBlank(newValue)) {
                         SubjectEventStatus newStatus = SubjectEventStatus.get(new Integer(newValue).intValue());
                         sea.setNewSubjectEventStatus(newStatus);
                     }
@@ -365,6 +363,11 @@ public class ViewStudySubjectServlet extends SecureController {
                 eventLogs.add(sea);
             }
             request.setAttribute("eventLogs", eventLogs);
+            String errorData = request.getParameter("errorData");
+            if (StringUtils.isNotEmpty(errorData))
+                request.setAttribute("errorData", errorData);
+
+            request.setAttribute("participateStatus", getParticipateStatus(parentStudyId).toLowerCase());
             forwardPage(Page.VIEW_STUDY_SUBJECT);
         }
     }
@@ -427,7 +430,7 @@ public class ViewStudySubjectServlet extends SecureController {
             EventDefinitionCRFBean edc = edcdao.findByStudyEventDefinitionIdAndCRFId(study, studyEventDefinitionId, cb.getId());
             // below added 092007 tbh
             // rules updated 112007 tbh
-            if (status.equals(SubjectEventStatus.LOCKED) || status.equals(SubjectEventStatus.SKIPPED) || status.equals(SubjectEventStatus.STOPPED)) {
+            if (status.equals(SubjectEventStatus.LOCKED) || status.equals(SubjectEventStatus.SKIPPED ) || status.equals(SubjectEventStatus.STOPPED )) {
                 ecb.setStage(DataEntryStage.LOCKED);
 
                 // we need to set a SED-wide flag here, because other edcs

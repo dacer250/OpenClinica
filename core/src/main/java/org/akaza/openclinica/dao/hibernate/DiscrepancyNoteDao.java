@@ -15,7 +15,8 @@ public class DiscrepancyNoteDao extends AbstractDomainDao<DiscrepancyNote> {
     static String findParentQueryByItemDataQuery = "select dn from DiscrepancyNote dn "
             + "join DnItemDataMap didm on didm.discrepancyNote.discrepancyNoteId = dn.discrepancyNoteId "
             + "join DiscrepancyNoteType dnt on dn.discrepancyNoteType.discrepancyNoteTypeId = dnt.discrepancyNoteTypeId "
-            + "where dn.parentDiscrepancyNote is null " + "and didm.itemData.itemDataId = :itemDataId";
+            + "where dn.parentDiscrepancyNote is null "
+            + "and didm.itemData.itemDataId = :itemDataId and dn.discrepancyNoteType.discrepancyNoteTypeId= :noteTypeId";
 
     static String findChildQueriesByItemData = "select dn from DiscrepancyNote dn "
             + "join DnItemDataMap didm on didm.discrepancyNote.discrepancyNoteId = dn.discrepancyNoteId "
@@ -36,9 +37,10 @@ public class DiscrepancyNoteDao extends AbstractDomainDao<DiscrepancyNote> {
         return (DiscrepancyNote) q.uniqueResult();
     }
 
-    public DiscrepancyNote findParentQueryByItemData(Integer itemDataId) {
+    public DiscrepancyNote findParentQueryByItemData(Integer itemDataId, Integer noteTypeId) {
         Query q = getCurrentSession().createQuery(findParentQueryByItemDataQuery);
         q.setParameter("itemDataId", itemDataId);
+        q.setParameter("noteTypeId", noteTypeId);
         return (DiscrepancyNote) q.uniqueResult();
     }
 
@@ -46,6 +48,17 @@ public class DiscrepancyNoteDao extends AbstractDomainDao<DiscrepancyNote> {
         Query q = getCurrentSession().createQuery(findChildQueriesByItemData);
         q.setParameter("itemDataId", itemDataId);
         return ((List<DiscrepancyNote>) q.list());
+    }
+
+    public int getMaxThreadNumber() {
+        String query = "select max(dn.thread_number) from discrepancy_note dn ";
+        org.hibernate.Query q = getCurrentSession().createSQLQuery(query);
+        Number result = (Number) q.uniqueResult();
+        if (result == null)
+            return 0;
+        else
+            return result.intValue();
+
     }
 
 }

@@ -7,13 +7,13 @@
  */
 package org.akaza.openclinica.control.managestudy;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +33,7 @@ import org.akaza.openclinica.bean.managestudy.StudyEventBean;
 import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
 import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
 import org.akaza.openclinica.bean.submit.CRFVersionBean;
+import org.akaza.openclinica.bean.submit.DisplayEventCRFBean;
 import org.akaza.openclinica.bean.submit.EventCRFBean;
 import org.akaza.openclinica.control.SpringServletAccess;
 import org.akaza.openclinica.control.core.SecureController;
@@ -42,7 +43,6 @@ import org.akaza.openclinica.control.form.FormProcessor;
 import org.akaza.openclinica.control.form.Validator;
 import org.akaza.openclinica.control.submit.AddNewSubjectServlet;
 import org.akaza.openclinica.control.submit.SubmitDataServlet;
-import org.akaza.openclinica.core.SecurityManager;
 import org.akaza.openclinica.core.form.StringUtil;
 import org.akaza.openclinica.dao.admin.CRFDAO;
 import org.akaza.openclinica.dao.hibernate.RuleSetDao;
@@ -56,11 +56,20 @@ import org.akaza.openclinica.dao.rule.RuleSetDAO;
 import org.akaza.openclinica.dao.submit.CRFVersionDAO;
 import org.akaza.openclinica.dao.submit.EventCRFDAO;
 import org.akaza.openclinica.dao.submit.ItemDataDAO;
+import org.akaza.openclinica.domain.datamap.AuditLogEvent;
+import org.akaza.openclinica.domain.datamap.AuditLogEventType;
 import org.akaza.openclinica.domain.rule.RuleSetBean;
+import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
+import org.akaza.openclinica.service.AuditLogEventService;
 import org.akaza.openclinica.service.DiscrepancyNoteUtil;
 import org.akaza.openclinica.service.rule.RuleSetService;
 import org.akaza.openclinica.view.Page;
 import org.akaza.openclinica.web.InsufficientPermissionException;
+import org.apache.commons.lang.StringUtils;
+import org.keycloak.authorization.client.AuthzClient;
+import org.keycloak.authorization.client.util.HttpResponseException;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.context.support.WebApplicationContextUtils;
 
 /**
  * @author jxu
@@ -92,6 +101,10 @@ public class UpdateStudyEventServlet extends SecureController {
     public final static String START_DATE_NOTE = "startDateNote";
     public final static String HAS_END_DATE_NOTE = "hasEndDateNote";
     public final static String END_DATE_NOTE = "endDateNote";
+    private WebApplicationContext ctx = null;
+    public static final String ORIGINATING_PAGE = "originatingPage";
+    public static final String STUDY_EVENT = "study_event";
+    public static final String PREV_STUDY_EVENT_STATUS_ID = "prev_study_event_id";
 
     @Override
     public void mayProceed() throws InsufficientPermissionException {
@@ -107,6 +120,8 @@ public class UpdateStudyEventServlet extends SecureController {
 
     @Override
     public void processRequest() throws Exception {
+        ctx = WebApplicationContextUtils.getWebApplicationContext(context);
+
         FormDiscrepancyNotes discNotes = null;
         FormProcessor fp = new FormProcessor(request);
         int studyEventId = fp.getInt(EVENT_ID, true);
@@ -205,7 +220,7 @@ public class UpdateStudyEventServlet extends SecureController {
         ArrayList eventCrfs = studyEvent.getEventCRFs();
         for (int i = 0; i < eventCrfs.size(); i++) {
             EventCRFBean ecrf = (EventCRFBean) eventCrfs.get(i);
-            EventDefinitionCRFBean edcBean = edcdao.findByStudyEventIdAndCRFVersionId(studyBean, studyEventId, ecrf.getCRFVersionId());
+            EventDefinitionCRFBean edcBean = edcdao.findByStudyEventIdAndFormLayoutId(studyBean, studyEventId, ecrf.getFormLayoutId());
             if (ecrf.getStage().equals(DataEntryStage.INITIAL_DATA_ENTRY)
                     || ecrf.getStage().equals(DataEntryStage.INITIAL_DATA_ENTRY_COMPLETE) && edcBean.isDoubleEntry() == true) {
                 removeSign = true;
@@ -245,6 +260,10 @@ public class UpdateStudyEventServlet extends SecureController {
         }
         if (studyEvent.getSubjectEventStatus().equals(SubjectEventStatus.DATA_ENTRY_STARTED)) {
             statuses.remove(SubjectEventStatus.SKIPPED);
+        }
+        if ((studyEvent.getSubjectEventStatus().equals(SubjectEventStatus.SCHEDULED)
+                || studyEvent.getSubjectEventStatus().equals(SubjectEventStatus.DATA_ENTRY_STARTED)) && currentRole.isInvestigator()) {
+            statuses.remove(SubjectEventStatus.SIGNED);
         }
 
         ArrayList getECRFs = studyEvent.getEventCRFs();
@@ -292,7 +311,7 @@ public class UpdateStudyEventServlet extends SecureController {
             }
         }
         // below added 092007, tbh, task #1390
-        if (!ub.isSysAdmin() && !currentRole.getRole().equals(Role.STUDYDIRECTOR) && !currentRole.getRole().equals(Role.COORDINATOR)) {
+        if (!currentRole.getRole().equals(Role.STUDYDIRECTOR) && !currentRole.getRole().equals(Role.COORDINATOR)) {
             statuses.remove(SubjectEventStatus.LOCKED);
         }
 
@@ -310,14 +329,30 @@ public class UpdateStudyEventServlet extends SecureController {
         StudyEventDefinitionDAO seddao = new StudyEventDefinitionDAO(sm.getDataSource());
         StudyEventDefinitionBean sed = (StudyEventDefinitionBean) seddao.findByPK(studyEvent.getStudyEventDefinitionId());
         request.setAttribute(EVENT_DEFINITION_BEAN, sed);
+
+        String start_date = fp.getDateTimeInputString(INPUT_STARTDATE_PREFIX);
+        String end_date = fp.getDateTimeInputString(INPUT_ENDDATE_PREFIX);
+        SimpleDateFormat dteFormat = new SimpleDateFormat(ResourceBundleProvider.getFormatBundle().getString("date_format_string"));
+        Date start = null;
+        Date end = null;
+        if (!StringUtils.isEmpty(start_date)) {
+            start = fp.getDateTime(INPUT_STARTDATE_PREFIX);
+            start_date = dteFormat.format(start);
+        }
+        if (!StringUtils.isEmpty(end_date)) {
+            end = fp.getDateTime(INPUT_ENDDATE_PREFIX);
+            end_date = dteFormat.format(end);
+        }
+
         if (action.equalsIgnoreCase("submit")) {
             discNotes = (FormDiscrepancyNotes) session.getAttribute(AddNewSubjectServlet.FORM_DISCREPANCY_NOTES_NAME);
             DiscrepancyValidator v = new DiscrepancyValidator(request, discNotes);
             SubjectEventStatus ses = SubjectEventStatus.get(fp.getInt(SUBJECT_EVENT_STATUS_ID));
+            session.setAttribute(PREV_STUDY_EVENT_STATUS_ID, studyEvent.getSubjectEventStatus().getId());
             studyEvent.setSubjectEventStatus(ses);
             EventCRFDAO ecdao = new EventCRFDAO(sm.getDataSource());
             ArrayList<EventCRFBean> eventCRFs = ecdao.findAllByStudyEvent(studyEvent);
-            if (ses.equals(SubjectEventStatus.SKIPPED) || ses.equals(SubjectEventStatus.STOPPED)) {
+            if (ses.equals(SubjectEventStatus.SKIPPED) ) {
                 studyEvent.setStatus(Status.UNAVAILABLE);
                 for (int i = 0; i < eventCRFs.size(); i++) {
                     EventCRFBean ecb = eventCRFs.get(i);
@@ -338,10 +373,12 @@ public class UpdateStudyEventServlet extends SecureController {
             // YW 3-12-2008, 2220 fix
             String strEnd = fp.getDateTimeInputString(INPUT_ENDDATE_PREFIX);
             String strEndScheduled = fp.getDateTimeInputString(INPUT_ENDDATE_PREFIX);
-            Date start = fp.getDateTime(INPUT_STARTDATE_PREFIX);
-            Date end = null;
-            v.addValidation(INPUT_STARTDATE_PREFIX, Validator.IS_DATE_TIME);
-            v.alwaysExecuteLastValidation(INPUT_STARTDATE_PREFIX);
+            String strStartScheduled = fp.getDateTimeInputString(INPUT_STARTDATE_PREFIX);
+
+            if (!strStartScheduled.equals("")) {
+                v.addValidation(INPUT_STARTDATE_PREFIX, Validator.IS_DATE_TIME);
+                v.alwaysExecuteLastValidation(INPUT_STARTDATE_PREFIX);
+            }
             if (!strEndScheduled.equals("")) {
                 v.addValidation(INPUT_ENDDATE_PREFIX, Validator.IS_DATE_TIME);
                 v.alwaysExecuteLastValidation(INPUT_ENDDATE_PREFIX);
@@ -436,6 +473,7 @@ public class UpdateStudyEventServlet extends SecureController {
                 // inner Map maps the resolution status name to the number of
                 // notes for that
                 // eventCRF id, as in New --> 2
+                displayEvBean.setDisplayEventCRFs(displayEventCRFs);
                 displayEvBean.setStudyEvent(studyEvent);
                 displayEvents.add(displayEvBean);
                 // Don't filter for res status or disc note type; disc note
@@ -443,7 +481,18 @@ public class UpdateStudyEventServlet extends SecureController {
                 discNoteUtil.injectParentDiscNotesIntoDisplayStudyEvents(displayEvents, new HashSet(), sm.getDataSource(), 0);
                 Map discNoteByEventCRFid = discNoteUtil.createDiscNoteMapByEventCRF(displayEvents);
                 request.setAttribute("discNoteByEventCRFid", discNoteByEventCRFid);
+                session.setAttribute("signatureURL", request.getRequestURL());
 
+                String originationUrl = "UpdateStudyEvent?action=" + action + "%26event_id=" + studyEventId + "%26ss_id=" + studySubjectId + "%26startDate="
+                        + start_date + "%26startHour=" + fp.getString(INPUT_STARTDATE_PREFIX + "Hour") + "%26startMinute="
+                        + fp.getString(INPUT_STARTDATE_PREFIX + "Minute") + "%26startHalf=" + fp.getString(INPUT_STARTDATE_PREFIX + "Half") + "%26endDate="
+                        + end_date + "%26endHour=" + fp.getString(INPUT_ENDDATE_PREFIX + "Hour") + "%26endMinute="
+                        + fp.getString(INPUT_ENDDATE_PREFIX + "Minute") + "%26endHalf=" + fp.getString(INPUT_ENDDATE_PREFIX + "Half") + "%26statusId="
+                        + studyEvent.getSubjectEventStatus().getId();
+
+                request.setAttribute(ORIGINATING_PAGE, originationUrl);
+
+                // response.sendRedirect(request.getContextPath() + "/pages/userSignature");
                 forwardPage(Page.UPDATE_STUDY_EVENT_SIGNED);
             } else {
                 logger.debug("no validation error");
@@ -495,32 +544,45 @@ public class UpdateStudyEventServlet extends SecureController {
             // status
             String username = request.getParameter("j_user");
             String password = request.getParameter("j_pass");
+            if (username == null)
+                username = "";
+            if (password == null)
+                password = "";
+
             // tring encodedUserPass =
             // org.akaza.openclinica.core.SecurityManager.getInstance().encrytPassword(password);
-            SecurityManager securityManager = ((SecurityManager) SpringServletAccess.getApplicationContext(context).getBean("securityManager"));
             UserAccountBean ub = (UserAccountBean) session.getAttribute("userBean");
             StudyEventBean seb = (StudyEventBean) session.getAttribute("eventSigned");
-            if (securityManager.verifyPassword(password, getUserDetails()) && ub.getName().equals(username)) {
+            boolean isAuthenticated = false;
+            AuthzClient authzClient = AuthzClient.create();
+            try {
+                authzClient.obtainAccessToken(username, password);
+                isAuthenticated = true;
+            } catch (HttpResponseException e) {
+                logger.error("Authorization:" + e);
+            }
+            if (isAuthenticated && ub.getName().equalsIgnoreCase(username)) {
+                Date date = new Date();
+                String detail = "The eCRFs that are part of this event were signed by " + ub.getFirstName() + " " + ub.getLastName() + " (" + ub.getName()
+                        + ") " + "on Date Time " + date + " under the following attestation:\n\n" + resword.getString("sure_to_sign_subject3");
                 seb.setUpdater(ub);
-                seb.setUpdatedDate(new Date());
+                seb.setUpdatedDate(date);
+                seb.setAttestation(detail);
                 sedao.update(seb);
 
-                // If all the StudyEvents become signed we will make the
-                // StudySubject signed as well
-                List studyEvents = sedao.findAllByStudySubject(ssub);
-                boolean allSigned = true;
-                for (Iterator iterator = studyEvents.iterator(); iterator.hasNext();) {
-                    StudyEventBean temp = (StudyEventBean) iterator.next();
-                    if (!temp.getSubjectEventStatus().equals(SubjectEventStatus.SIGNED)) {
-                        allSigned = false;
-                        break;
-                    }
-                }
-                if (allSigned) {
-                    logger.debug("Signing StudySubject [" + ssub.getSubjectId() + "]");
-                    ssub.setStatus(Status.SIGNED);
-                    ssub.setUpdater(ub);
-                    ssdao.update(ssub);
+                // OC-10834 OC4 - Signature not recorded when signing an event if the event status is already Signed
+                // manually add audit-log-event when user re-signed without any changes
+                int studyEventStatusId = (int)session.getAttribute(PREV_STUDY_EVENT_STATUS_ID);
+                if (seb.getSubjectEventStatus().equals(SubjectEventStatus.SIGNED) && studyEventStatusId == SubjectEventStatus.SIGNED.getId()) {
+                    AuditLogEvent auditLogEvent = new AuditLogEvent();
+                    auditLogEvent.setAuditTable(STUDY_EVENT);
+                    auditLogEvent.setEntityId(seb.getId());
+                    auditLogEvent.setEntityName("Status");
+                    auditLogEvent.setAuditLogEventType(new AuditLogEventType(31));
+                    auditLogEvent.setNewValue(String.valueOf(SubjectEventStatus.SIGNED.getId()));
+                    auditLogEvent.setOldValue(String.valueOf(SubjectEventStatus.SIGNED.getId()));
+                    auditLogEvent.setDetails(detail);
+                    getAuditLogEventService().saveAuditLogEvent(auditLogEvent, ub);
                 }
 
                 // save discrepancy notes into DB
@@ -554,9 +616,18 @@ public class UpdateStudyEventServlet extends SecureController {
                 ArrayList uncompletedEventDefinitionCRFs = getUncompletedCRFs(eventDefinitionCRFs, eventCRFs);
                 populateUncompletedCRFsWithCRFAndVersions(uncompletedEventDefinitionCRFs);
 
-                ArrayList displayEventCRFs = ViewStudySubjectServlet.getDisplayEventCRFs(sm.getDataSource(), eventCRFs, eventDefinitionCRFs, ub, currentRole,
-                        studyEvent.getSubjectEventStatus(), study);
+                ArrayList<DisplayEventCRFBean> displayEventCRFs = ViewStudySubjectServlet.getDisplayEventCRFs(sm.getDataSource(), eventCRFs,
+                        eventDefinitionCRFs, ub, currentRole, studyEvent.getSubjectEventStatus(), study);
 
+                DiscrepancyNoteUtil discNoteUtil = new DiscrepancyNoteUtil();
+                DisplayStudyEventBean displayEvBean = new DisplayStudyEventBean();
+                List<DisplayStudyEventBean> displayEvents = new ArrayList<DisplayStudyEventBean>();
+                displayEvBean.setDisplayEventCRFs(displayEventCRFs);
+                displayEvBean.setStudyEvent(studyEvent);
+                displayEvents.add(displayEvBean);
+                discNoteUtil.injectParentDiscNotesIntoDisplayStudyEvents(displayEvents, new HashSet(), sm.getDataSource(), 0);
+                Map discNoteByEventCRFid = discNoteUtil.createDiscNoteMapByEventCRF(displayEvents);
+                request.setAttribute("discNoteByEventCRFid", discNoteByEventCRFid);
                 request.setAttribute("studySubject", ssb);
                 request.setAttribute("uncompletedEventDefinitionCRFs", uncompletedEventDefinitionCRFs);
                 request.setAttribute("displayEventCRFs", displayEventCRFs);
@@ -564,6 +635,15 @@ public class UpdateStudyEventServlet extends SecureController {
                 // ------------------
                 request.setAttribute("studyEvent", session.getAttribute("eventSigned"));
                 addPageMessage(restext.getString("password_match"));
+
+                String originationUrl = "UpdateStudyEvent?action=" + action + "%26event_id=" + studyEventId + "%26ss_id=" + studySubjectId + "%26startDate="
+                        + start_date + "%26startHour=" + fp.getString(INPUT_STARTDATE_PREFIX + "Hour") + "%26startMinute="
+                        + fp.getString(INPUT_STARTDATE_PREFIX + "Minute") + "%26startHalf=" + fp.getString(INPUT_STARTDATE_PREFIX + "Half") + "%26endDate="
+                        + end_date + "%26endHour=" + fp.getString(INPUT_ENDDATE_PREFIX + "Hour") + "%26endMinute="
+                        + fp.getString(INPUT_ENDDATE_PREFIX + "Minute") + "%26endHalf=" + fp.getString(INPUT_ENDDATE_PREFIX + "Half") + "%26statusId="
+                        + studyEvent.getSubjectEventStatus().getId();
+
+                request.setAttribute(ORIGINATING_PAGE, originationUrl);
                 forwardPage(Page.UPDATE_STUDY_EVENT_SIGNED);
             }
         } else {
@@ -584,38 +664,41 @@ public class UpdateStudyEventServlet extends SecureController {
 
             HashMap presetValues = new HashMap();
             // YW 08-17-2007 <<
-            if (studyEvent.getStartTimeFlag() == true) {
-                Calendar c = new GregorianCalendar();
-                c.setTime(studyEvent.getDateStarted());
-                presetValues.put(INPUT_STARTDATE_PREFIX + "Hour", new Integer(c.get(Calendar.HOUR_OF_DAY)));
-                presetValues.put(INPUT_STARTDATE_PREFIX + "Minute", new Integer(c.get(Calendar.MINUTE)));
-                // Later it could be put to somewhere as a static method if
-                // necessary.
-                switch (c.get(Calendar.AM_PM)) {
-                case 0:
-                    presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "am");
-                    break;
-                case 1:
-                    presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "pm");
-                    break;
-                default:
+            if (studyEvent.getDateStarted() != null) {
+                if (studyEvent.getStartTimeFlag() == true) {
+                    Calendar c = new GregorianCalendar();
+                    c.setTime(studyEvent.getDateStarted());
+                    presetValues.put(INPUT_STARTDATE_PREFIX + "Hour", new Integer(c.get(Calendar.HOUR_OF_DAY)));
+                    presetValues.put(INPUT_STARTDATE_PREFIX + "Minute", new Integer(c.get(Calendar.MINUTE)));
+                    // Later it could be put to somewhere as a static method if
+                    // necessary.
+                    switch (c.get(Calendar.AM_PM)) {
+                    case 0:
+                        presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "am");
+                        break;
+                    case 1:
+                        presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "pm");
+                        break;
+                    default:
+                        presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "");
+                        break;
+                    }
+                } else {
+                    presetValues.put(INPUT_STARTDATE_PREFIX + "Hour", new Integer(-1));
+                    presetValues.put(INPUT_STARTDATE_PREFIX + "Minute", new Integer(-1));
                     presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "");
-                    break;
                 }
-            } else {
-                presetValues.put(INPUT_STARTDATE_PREFIX + "Hour", new Integer(-1));
-                presetValues.put(INPUT_STARTDATE_PREFIX + "Minute", new Integer(-1));
-                presetValues.put(INPUT_STARTDATE_PREFIX + "Half", "");
+
+                // YW >>
+
+                String dateValue = local_df.format(studyEvent.getDateStarted());
+                presetValues.put(INPUT_STARTDATE_PREFIX + "Date", dateValue);
+
+                // YW 3-12-2008, add end datetime for 2220 fix<<
+                presetValues.put(INPUT_ENDDATE_PREFIX + "Hour", new Integer(-1));
+                presetValues.put(INPUT_ENDDATE_PREFIX + "Minute", new Integer(-1));
+                presetValues.put(INPUT_ENDDATE_PREFIX + "Half", "");
             }
-            // YW >>
-
-            String dateValue = local_df.format(studyEvent.getDateStarted());
-            presetValues.put(INPUT_STARTDATE_PREFIX + "Date", dateValue);
-
-            // YW 3-12-2008, add end datetime for 2220 fix<<
-            presetValues.put(INPUT_ENDDATE_PREFIX + "Hour", new Integer(-1));
-            presetValues.put(INPUT_ENDDATE_PREFIX + "Minute", new Integer(-1));
-            presetValues.put(INPUT_ENDDATE_PREFIX + "Half", "");
             if (studyEvent.getDateEnded() != null) {
                 if (studyEvent.getEndTimeFlag() == true) {
                     Calendar c = new GregorianCalendar();
@@ -845,4 +928,7 @@ public class UpdateStudyEventServlet extends SecureController {
         return (RuleSetService) SpringServletAccess.getApplicationContext(context).getBean("ruleSetService");
     }
 
+    private AuditLogEventService getAuditLogEventService() {
+        return  (AuditLogEventService) SpringServletAccess.getApplicationContext(context).getBean("auditLogEventService");
+    }
 }

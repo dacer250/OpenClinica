@@ -39,10 +39,14 @@
 </tr>
 <jsp:include page="include/sideInfo.jsp"/>
 <link rel="stylesheet" href="../includes/jmesa/jmesa.css" type="text/css">
-<script type="text/JavaScript" language="JavaScript" src="../includes/jmesa/jquery.min.js"></script>
-<script type="text/JavaScript" language="JavaScript" src="../includes/jmesa/jmesa.js"></script>
-<script type="text/JavaScript" language="JavaScript" src="../includes/jmesa/jquery.jmesa.js"></script>
-  <script type="text/javascript" language="JavaScript" src="../includes/jmesa/jquery-migrate-1.1.1.js"></script>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery.min.js"></script>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jmesa.js"></script>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery.jmesa.js"></script>
+<script type="text/javascript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery-migrate-1.4.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery.blockUI.js"></script>
+<script type="text/javascript" language="JavaScript" src="${pageContext.request.contextPath}/includes/permissionTagAccess.js"></script>
+
+
 <%-- view all subjects starts here --%>
 <script type="text/javascript">
 
@@ -55,18 +59,6 @@
         //location.href = '${pageContext.request.contextPath}/ViewCRF?module=manage&crfId=' + '${crf.id}&' + parameterString;
     }
 </script>
-
-<c:if test="${(study.status.locked || study.status.frozen || study.status.pending)}">
-    <c:if test="${userBean.numVisitsToMainMenu<=1 || studyJustChanged=='yes'}">
-        <script type="text/javascript">
-            $(window).on('load', function () {
-                initmb();
-                sm('box', 730,100);
-            });
-        </script>
-    </c:if>
-</c:if>
-
 
 </div>
 
@@ -82,10 +74,15 @@
         </c:if>   
     </span><br>
     <div style="text-align:center; width:100%;">
-        <button onclick="hm('box');">OK</button>
+        <button id="btn" onclick="hm('box');">OK</button>
     </div>
 </div>
 
+<script type="text/javascript">
+    window.onload = function() {
+        document.getElementById("btn").focus();
+    };
+</script>
 
 <h1><span class="title_manage">
 <fmt:message key="sdv_sdv_for" bundle="${resword}"/> <c:out value="${study.name}"/>
@@ -97,135 +94,6 @@
 <c:set var="restore" value="true"/>
 <c:if test="${sSdvRestore=='false'}"><c:set var="restore" value="false"/></c:if>
 
-<%--
-<!-- These DIVs define shaded box borders -->
-<div id="startBox" class="box_T"><div class="box_L"><div class="box_R"><div class="box_B">
-<div class="box_TL"><div class="box_TR"><div class="box_BL"><div class="box_BR">
-<div class="textbox_center">
-<form method="GET" action="viewAllSubjectSDVform" name="sdvFilterForm">
-    --%><%--<input type="hidden" name="srch" value="y" />--%><%--
-                    <input type="hidden" name="studyId" value="${studyId}"/>
-                    <table border="0" cellpadding="0" cellspacing="0">
-                        <tr valign="top"><td><b><fmt:message key="filter_events_by" bundle="${resword}"/>:</b></td></tr>
-                        <tr valign="top">
-                            <td><fmt:message key="study_subject" bundle="${resword}"/>:</td>
-                            <td><div class="formfieldL_BG" style="margin-right:10px">
-                                <input type="text" name="study_subject_id" class="formfieldS" />
-                            </div>
-                            </td>
-                            <td><fmt:message key="event_crf" bundle="${resword}"/>:</td>
-                            <td>
-                                <div class="formfieldM_BG" style="margin-right:10px">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="eventCRFName" class="formfieldM">
-                                        <option value="0">--<fmt:message key="all" bundle="${resword}"/>--</option>
-                                        --%><%-- probably need to use study event name here --%><%--
-                                        <c:forEach var="eventCRFNam" items="${eventCRFNames}">
-                                            <option value="${eventCRFNam}">${eventCRFNam}</option>
-                                        </c:forEach>
-                                    </select>
-                                </div>
-                            </td>
-                            <td><fmt:message key="study_event_definition" bundle="${resword}"/>:</td>
-                            <td>
-                                <div class="formfieldM_BG">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="studyEventDefinition" class="formfieldM">
-                                        <option value="0">--<fmt:message key="all" bundle="${resword}"/>--</option>
-                                        --%><%-- probably need to use study event name here --%><%--
-                                        <c:forEach var="studyEventDefinition" items="${studyEventDefinitions}">
-                                        <option value="<c:out value="${studyEventDefinition.id}"/>"><c:out value="${studyEventDefinition.name}"/>
-                                            </c:forEach>
-                                    </select>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <td><fmt:message key="study_event_status" bundle="${resword}"/>:</td>
-                            <td>
-                                <div class="formfieldM_BG" style="margin-right:10px">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="studyEventStatus" class="formfieldM">
-                                        <option value="-1">--<fmt:message key="all" bundle="${resword}"/>--</option>
-                                        <c:forEach var="studyEventStatus" items="${studyEventStatuses}">
-                                        <option value="<c:out value="${studyEventStatus.id}"/>"><c:out value="${studyEventStatus.name}"/>
-                                            </c:forEach>
-                                    </select>
-                                </div>
-                            </td>
-                            <td><fmt:message key="event_crf_status" bundle="${resword}"/>:</td>
-                            <td>
-                                <div class="formfieldM_BG" style="margin-right:10px">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="eventCRFStatus" class="formfieldM">
-                                        <option value="-1">--<fmt:message key="all" bundle="${resword}"/>--</option>
-                                        <c:forEach var="eventCRFStatus" items="${eventCRFDStatuses}">
-                                        <option value="<c:out value="${eventCRFStatus.id}"/>"><c:out value="${eventCRFStatus.name}"/>
-                                            </c:forEach>
-                                    </select>
-                                </div>
-                            </td>
-                            <td>
-                                <fmt:message key="event_crf_sdv_status" bundle="${resword}"/>:
-                            </td>
-                            <td>
-                                <div class="formfieldM_BG">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="eventcrfSDVStatus" class="formfieldM">
-                                        <option value="N/A"><fmt:message key="N/A" bundle="${resword}"/></option>
-                                        <option value="None"><fmt:message key="none" bundle="${resword}"/></option>
-                                        <option value="Complete"><fmt:message key="complete" bundle="${resword}"/></option>
-                                    </select>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr valign="top">
-                            <td>
-                                <fmt:message key="event_crf_sdv_require" bundle="${resword}"/>:
-                            </td>
-                            <td>
-                                <div class="formfieldM_BG" style="margin-right:10px">
-                                    --%><%--<c:set var="status1" value="${statusId}"/>--%><%--
-                                    <select name="sdvRequirement" class="formfieldM">
-                                        <option value="0">--<fmt:message key="all" bundle="${resword}"/>--</option>
-                                        <c:forEach var="sdvRequirement" items="${sdvRequirements}">
-                                        <option value="<c:out value="${sdvRequirement.code}"/>"><c:out value="${sdvRequirement.description}"/>
-                                            </c:forEach>
-                                    </select>
-                                </div>
-                            </td>
-                            <td>
-                                <fmt:message key="event_crf_date_updated" bundle="${resword}"/>:
-                            </td>
-                            <td>
-                                <div class="formfieldS_BG" style="width:157px">
-                                    <input type="text" name="startUpdatedDate" value="${startUpdatedDate}" class="formfieldS" id="startUpdatedDateField"><A HREF="#"><img src="../images/bt_Calendar.gif" alt="<fmt:message key="show_calendar" bundle="${resword}"/>" title="<fmt:message key="show_calendar" bundle="${resword}"/>" border="0" id="startDateTrigger"/>
-                                    <script type="text/javascript">
-                                        Calendar.setup({inputField  : "startUpdatedDateField", ifFormat    : "<fmt:message key="date_format_calender" bundle="${resformat}"/>", button      : "startDateTrigger" });
-                                    </script>
-                                </a>
-                                </div>
-                            </td>
-                            <td><div><b><fmt:message key="To" bundle="${resword}"/></b></div></td>
-                            <td><div class="formfieldS_BG" style="width:157px">
-                                <input type="text" name="endDate" value="${endDate}" class="formfieldS" id="endDateField">
-                                <A HREF="#">
-                                    <img src="../images/bt_Calendar.gif" alt="<fmt:message key="show_calendar" bundle="${resword}"/>" title="<fmt:message key="show_calendar" bundle="${resword}"/>" border="0" id="startDateTriggerB"/>
-                                    <script type="text/javascript">
-                                        Calendar.setup({inputField  : "endDateField", ifFormat    : "<fmt:message key="date_format_calender" bundle="${resformat}"/>", button      : "startDateTriggerB" });
-                                    </script>
-                                </a>
-                            </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colspan="6" align="right"><input type="submit" name="submit" value="<fmt:message key="apply_filter" bundle="${resword}"/>" class="button_medium"></td>
-                        </tr>
-                    </table>
-                </form>
-            </div>
-        </div></div></div></div></div></div></div></div>--%>
-
 <script type="text/javascript">
     function prompt(formObj,crfId){
         var bool = confirm(
@@ -235,6 +103,12 @@
             formObj.crfId.value=crfId;
             formObj.submit();
         }
+    }
+
+    function submitSdv(formObj,crfId) {
+        formObj.action='${pageContext.request.contextPath}/pages/handleSDVGet';
+        formObj.crfId.value=crfId;
+        formObj.submit();
     }
 </script>
 <div id="subjectSDV">
@@ -256,6 +130,50 @@
 </div>
 <%-- view all subjects ends here --%>
 
+<link rel="stylesheet" href="../includes/css/icomoon-style.css">
 
+<script>
+  function store(callback) {
+    if (callback)
+      store.data = callback(store.data) || store.data;
+    if (!store.dirty) {
+      store.dirty = true;
+      setTimeout(function() {
+        sessionStorage.setItem(store.key, JSON.stringify(store.data));
+        if (
+          store.data.ocStatusHide !== 'oc-status-removed' ||
+          store.data.datatables.some(function(state) {return canReset(state)}) ||
+          $('#studySubjectRecord.collapsed, #subjectEvents.collapsed, #commonEvents>.expanded').length
+        )
+          $('#reset-all-filters').removeClass('invisible');
+        else
+          $('#reset-all-filters').addClass('invisible');
+        store.dirty = false;
+      }, 1);
+    }
+  }
+  store.key = '${study.oid}.SDVs';
+  store.data = JSON.parse(sessionStorage.getItem(store.key)) || {
+    sdvChecks: {}
+  };
+  store.dirty = false;
 
-<jsp:include page="include/footer.jsp"/>
+  $('#sdv')
+      .on('change', 'input[type=checkbox]', function() {
+        var checkbox = $(this);
+        var name = checkbox.attr('name');
+        var checked = checkbox.is(':checked');
+        store(function(data) {
+            data.sdvChecks[name] = checked;
+        });
+      })
+      .find('input[type=checkbox]').each(function() {
+        var checkbox = $(this);
+        var name = checkbox.attr('name');
+        var checked = store.data.sdvChecks[name];
+        if (checked)
+            checkbox.attr('checked', 'checked');
+        else
+            checkbox.removeAttr('checked');
+      });
+</script>

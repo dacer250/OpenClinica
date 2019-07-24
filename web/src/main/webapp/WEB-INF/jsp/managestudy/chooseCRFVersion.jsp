@@ -12,7 +12,7 @@
 
 <link rel="stylesheet" href="../../includes/style_shaded_table.css" type="text/css">
 
-<link rel="SHORTCUT ICON" href="../../images/favicon.ico" type="image/x-icon" />
+<link rel="SHORTCUT ICON" href="../../images/favicon.png" type="image/x-icon" />
 
 <jsp:include page="../include/managestudy_top_pages_new.jsp">
 	<jsp:param name="isSpringControllerCCV" value="true" />
@@ -49,8 +49,9 @@
 
  
 </span></h1>
-<script type="text/JavaScript" language="JavaScript" src="../../includes/jmesa/jquery.min.js"></script>
-<script type="text/JavaScript" language="JavaScript" src="../../includes/jmesa/jquery-migrate-1.1.1.js"></script> 
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery.min.js"></script>
+<script type="text/JavaScript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery-migrate-1.4.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="${pageContext.request.contextPath}/includes/jmesa/jquery.blockUI.js"></script>
 
 <script type="text/javascript" language="javascript">
 $.noConflict();
@@ -73,11 +74,11 @@ $.noConflict();
 <input type="hidden" name="crfId" value="${crfBean.id}">
 <input type="hidden" name="crfName" value="${crfName}">
 <input type="hidden" name="formLayoutName" value="${formLayoutName}">
-<input type="hidden" name="eventCRFId" value="${eventCRFId}">
+<input type="hidden" name="eventCrfId" value="${eventCrfId}">
 <input type="hidden" name="eventName" value="${eventName}">
 <input type="hidden" name="eventCreateDate" value="${eventCreateDate}">
 <input type="hidden" name="eventOrdinal" value="${eventOrdinal}">
-        	
+<input type="hidden" name="originatingPage" value="${originatingPage}">
 
 
 <table cellpadding="2" cellspacing="2" border="0" class="dataTable" >
@@ -157,7 +158,7 @@ $.noConflict();
 <!-- <td  class="table_cell"  > <c:out value="${version.status.name}" />&nbsp;</td>-->
 <td  class="table_cell"  style="text-align:center;" ><c:if test="${version.id == formLayoutId}">X</c:if>&nbsp;</td>
 <td  class="table_cell"  >
-<a href="../../ParticipantFormServlet?crfOID=<c:out value="${version.oid}"/>" target="_blank"><span
+<a href="../../EnketoFormServlet?formLayoutId=<c:out value="${version.id}"/>&studyEventId=<c:out value="0"/>&eventCrfId=<c:out value="0"/>&mode=preview" target="_blank"><span
  name="bt_View1" class="icon icon-search" border="0" alt="<fmt:message key="view" bundle="${resword}"/>" title="<fmt:message key="view" bundle="${resword}"/>" align="left" hspace="6"></a>
 <a onmouseup="javascript:setImage('bt_Metadata','../../images/bt_Metadata.gif');" onmousedown="javascript:setImage('bt_Metadata','../../images/bt_Metadata.gif');" 
 href="#" onclick="window.openNewWindow('../../ViewCRFVersion?id=<c:out value="${version.id}"/>','','','')">

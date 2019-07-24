@@ -1,27 +1,15 @@
 package org.akaza.openclinica.ws;
 
-import com.auth0.Auth0;
-import com.auth0.authentication.AuthenticationAPIClient;
-import com.auth0.authentication.result.Credentials;
 import com.sun.xml.wss.impl.callback.PasswordValidationCallback;
-import org.akaza.openclinica.bean.core.Role;
 import org.akaza.openclinica.bean.core.UserType;
 import org.akaza.openclinica.bean.login.UserAccountBean;
-import org.akaza.openclinica.dao.hibernate.AuthoritiesDao;
 import org.akaza.openclinica.dao.login.UserAccountDAO;
-import org.akaza.openclinica.domain.user.AuthoritiesBean;
-import org.akaza.openclinica.i18n.core.LocaleResolver;
-import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
-import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.jwt.Jwt;
 import org.springframework.security.jwt.JwtHelper;
@@ -30,8 +18,6 @@ import org.springframework.security.oauth2.common.exceptions.InvalidTokenExcepti
 import org.springframework.security.oauth2.common.util.JsonParser;
 import org.springframework.security.oauth2.common.util.JsonParserFactory;
 import org.springframework.util.Assert;
-import org.springframework.web.context.ContextLoader;
-import org.springframework.web.context.WebApplicationContext;
 import org.springframework.ws.soap.security.callback.AbstractCallbackHandler;
 import org.springframework.ws.soap.security.callback.CleanupCallback;
 import sun.security.rsa.RSAPublicKeyImpl;
@@ -43,9 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
 
 /**
  * Callback handler that validates a user against Auth0. Logic based
@@ -115,57 +99,13 @@ public class SpringPlainTextPasswordValidationCallbackHandler extends AbstractCa
             boolean accessGranted = false;
             PasswordValidationCallback.PlainTextPasswordRequest plainTextRequest = (PasswordValidationCallback.PlainTextPasswordRequest) request;
 
-            try {
-                Locale locale = new Locale("en_US");
-                ResourceBundleProvider.updateLocale(locale);
-                WebApplicationContext context = ContextLoader.getCurrentWebApplicationContext();
-                dataSource = (DataSource) context.getBean("dataSource");
-                Properties auth0Properties = (Properties) context.getBean("auth0Properties");
 
-                Auth0 auth = new Auth0(auth0Properties.getProperty("auth0.clientId"), auth0Properties.getProperty("auth0.domain"));
-                AuthenticationAPIClient client = auth.newAuthenticationAPIClient();
-                logger.info("Creating client login in SpringSecurityPlainTextPasswordValidator: user: " +
-                        plainTextRequest.getUsername() + ": password: " + plainTextRequest.getPassword()
-                        + ": connection: " + auth0Properties.getProperty("auth0.connection"));
-                Credentials credentials = client.login(plainTextRequest.getUsername(), plainTextRequest.getPassword())
-                        .setConnection(auth0Properties.getProperty("auth0.connection")).execute();
-                logger.info("client credentials in SpringSecurityPlainTextPasswordValidator:" + credentials);
-                logger.info("client access token in SpringSecurityPlainTextPasswordValidator:" + credentials.getAccessToken());
-                logger.info("user username/password in SpringSecurityPlainTextPasswordValidator:" + plainTextRequest.getUsername() + ":" + plainTextRequest.getPassword());
-                if (StringUtils.isNotEmpty(credentials.getAccessToken())) {
-                    findOrCreateUser(plainTextRequest, credentials);
-                    Authentication authentication = new UsernamePasswordAuthenticationToken(plainTextRequest.getUsername(), null,
-                            AuthorityUtils.createAuthorityList("ROLE_USER"));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    accessGranted = true;
-                }
-                return accessGranted;
+            return accessGranted;
 
-            } catch (Exception failed) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Authentication request for user '" + plainTextRequest.getUsername() + "' failed: " + failed.toString());
-                }
-                SecurityContextHolder.clearContext();
-                return ignoreFailure;
-            }
         }
     }
 
-    private UserAccountBean findOrCreateUser(PasswordValidationCallback.PlainTextPasswordRequest plainTextRequest,
-            Credentials credentials) throws Exception{
-        Map<String, Object> map = decode(credentials.getIdToken());
-        UserAccountDAO userAccountDAO = new UserAccountDAO(dataSource);
 
-        UserAccountBean ub = (UserAccountBean) userAccountDAO.findByApiKey(plainTextRequest.getUsername());
-        if (StringUtils.isEmpty(ub.getName())) {
-            ub = (UserAccountBean) userAccountDAO.findByUserName(plainTextRequest.getUsername());
-        }
-        logger.info("User account:" + ub.getName());
-        if (ub.getId() != 0)
-            return ub;
-        else
-            return buildUserAccount(plainTextRequest, map);
-    }
 
     private Map<String, Object> decode(String token) {
         try {

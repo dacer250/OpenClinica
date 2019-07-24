@@ -1,19 +1,14 @@
 package org.akaza.openclinica.controller;
 
-import com.auth0.SessionUtils;
-import com.auth0.client.auth.AuthAPI;
-import com.auth0.exception.Auth0Exception;
-import com.auth0.json.auth.TokenHolder;
-import com.auth0.net.AuthRequest;
+import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.config.AppConfig;
-import org.akaza.openclinica.config.TokenAuthentication;
+import org.akaza.openclinica.core.EventCRFLocker;
 import org.akaza.openclinica.service.LogoutService;
 import org.akaza.openclinica.view.Page;
-import org.apache.commons.lang.StringUtils;
+import org.keycloak.authorization.client.AuthzClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.repository.query.Param;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,64 +16,124 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-import org.springframework.web.servlet.view.RedirectView;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.util.Map;
 
 /**
  * Created by krikorkrumlian on 3/30/17.
  */
-@Controller
+@Controller(value = "logoutController")
 public class LogoutController {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
-    @Autowired
-    private Auth0Controller controller;
     @Autowired LogoutService logoutService;
     @Autowired AppConfig config;
-    @RequestMapping(value="/logout", method = RequestMethod.GET)
-    protected String home(final Map<String, Object> model, final HttpServletRequest req) {
-        HttpSession session = req.getSession();
-        logger.info("Logout page");
-        session.removeAttribute("userBean");
-        session.removeAttribute("study");
-        session.removeAttribute("userRole");
-        session.removeAttribute("passwordExpired");
-        SecurityContextHolder.clearContext();
-        session.invalidate();
+    @Autowired
+    EventCRFLocker eventCRFLocker;
 
-        String urlPrefix = req.getRequestURL().substring(0, req.getRequestURL().lastIndexOf("/"));
-        int index = urlPrefix.indexOf(req.getContextPath());
-        String returnURL = urlPrefix.substring(0, index).concat(req.getContextPath()).concat("/pages/logoutSuccess");
-        return String.format("redirect:%s", controller.buildLogoutURL(returnURL));
+    @RequestMapping(value="/logout", method = RequestMethod.GET)
+    protected void home(final Map<String, Object> model, final HttpServletRequest req, final HttpServletResponse response) {
+        String authUrl = getLogoutUri(req, false);
+        HttpSession session = req.getSession();
+        logger.info("Called Logout page");
+        resetSession(session);
+        try {
+            req.logout();
+            response.sendRedirect(authUrl);
+        } catch (Exception e) {
+            logger.error("Error logging out:", e);
+        }
+    }
+
+    private String getRedirectUri(HttpServletRequest req, boolean callback) {
+        int port = req.getServerPort();
+        String portStr ="";
+        if (port != 80 && port != 443) {
+            portStr = ":" + port;
+        }
+        String redirectUri = req.getScheme() + "://" + req.getServerName() + portStr + req.getContextPath();
+        if (callback) {
+            redirectUri += "/pages/login";
+        } else {
+            redirectUri += "/MainMenu";
+        }
+        logger.info("Redirect URI:" + redirectUri);
+        return redirectUri;
+    }
+
+    private String getLogoutUri(HttpServletRequest req, boolean callback) {
+        AuthzClient authzClient = AuthzClient.create();
+        String coreAuthUrl = authzClient.getConfiguration().getAuthServerUrl();
+        String redirectUri = getRedirectUri(req, callback);
+        String authUrl = null;
+        String action = null;
+        if (callback)
+            action = "auth";
+        else
+            action = "logout";
+        try {
+            authUrl = coreAuthUrl + "/realms/" + authzClient.getConfiguration().getRealm()
+                    + "/protocol/openid-connect/" + action + "?redirect_uri=" + URLEncoder.encode(redirectUri, "UTF-8");
+            if (callback) {
+                authUrl += "&client_id=bridge&response_type=code";
+            }
+            logger.info("authUrl:" + authUrl);
+        } catch (UnsupportedEncodingException e) {
+            logger.error("Encoding redirect URI:" + redirectUri, e);
+        }
+        return authUrl;
     }
 
     @RequestMapping(value="/logoutSuccess", method = RequestMethod.GET)
-    protected String logout(final HttpServletRequest request, HttpServletResponse response) {
-        String returnToCookie = null;
-        try {
-            returnToCookie = URLDecoder.decode(logoutService.getReturnToCookie(request, response), "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            logger.error("Error parsing returnToCookie:" + e.getMessage());
-        }
+    protected String logout(final HttpServletRequest request, final HttpServletResponse response) {
         int index = request.getRequestURL().indexOf(request.getContextPath());
-        String returnURL = request.getRequestURL().substring(0, index);
-        if (StringUtils.isEmpty(returnToCookie))
-            returnToCookie = request.getContextPath() + Page.MENU_SERVLET.getFileName();
-        return "redirect:" + returnURL + returnToCookie;
+        String returnURL = request.getRequestURL().substring(0, index)
+                + request.getContextPath() + Page.MENU_SERVLET.getFileName();
+        String param = "";
+        if (request.getParameter("studyEnvUuid") != null) {
+            param = "?studyEnvUuid=" + request.getParameter("studyEnvUuid");
+        }
+        logger.info("/logoutSuccess:" + returnURL + param);
+        return "redirect:" + returnURL + param;
     }
 
-    @RequestMapping(value="/invalidateAuth0Token", method = RequestMethod.GET)
-    @ResponseStatus(value = HttpStatus.OK)
-    protected void invalidateAccessToken(final Map<String, Object> model, final HttpServletRequest req) {
+
+
+    @RequestMapping(value="/invalidateKeycloakToken", method = RequestMethod.GET)
+    public void invalidateAccessToken(final HttpServletRequest request,
+                                      final HttpServletResponse response) throws IOException {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null)
+        logger.info("Invalidating Keycloak token");
+        if (auth != null) {
             auth.setAuthenticated(false);
+            resetSession(request.getSession());
+        }
+        String authUrl = getLogoutUri(request, true);
+        response.sendRedirect(authUrl);
+    }
+
+    @RequestMapping(value="/resetFirstLogin", method = RequestMethod.GET)
+    @ResponseStatus(value = HttpStatus.OK)
+    public void resetFirstLogin(final HttpServletRequest request,
+                                      final HttpServletResponse response) throws IOException {
+        final HttpSession session = request.getSession();
+        logger.error("**********Resetting first time to false**********");
+        session.setAttribute("firstLoginCheck", "false");
+    }
+
+    private void resetSession(HttpSession session) {
+        // first release all locks
+        UserAccountBean ub = (UserAccountBean) session.getAttribute("userBean");
+        if (ub != null) {
+            eventCRFLocker.unlockAllForUser(ub.getId());
+        }
+        session.invalidate();
+        SecurityContextHolder.clearContext();
     }
 }

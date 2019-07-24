@@ -169,7 +169,7 @@ public class ViewNotesServlet extends SecureController {
         ItemDAO itemDao = new ItemDAO(sm.getDataSource());
         EventCRFDAO eventCRFDao = new EventCRFDAO(sm.getDataSource());
 
-        ListNotesTableFactory factory = new ListNotesTableFactory(showMoreLink);
+        ListNotesTableFactory factory = new ListNotesTableFactory(showMoreLink, getPermissionTagsList());
         factory.setSubjectDao(sdao);
         factory.setStudySubjectDao(subdao);
         factory.setUserAccountDao(uadao);
@@ -192,13 +192,15 @@ public class ViewNotesServlet extends SecureController {
         TableFacade tf = factory.createTable(request, response);
 
         Map<String, Map<String, String>> stats = generateDiscrepancyNotesSummary(factory.getNotesSummary());
-        Map<String, String> totalMap = generateDiscrepancyNotesTotal(stats);
+        Map<String, String> totalSummary = generateDiscrepancyNotesTotal(stats);
+        Map<String, String> totalMap = generateDiscrepancyNotesTotal(generateDiscrepancyNotesSummary(factory.getNotesSummary()));
 
         int grandTotal = 0;
         for (String typeName : totalMap.keySet()) {
             String total = totalMap.get(typeName);
             grandTotal = total.equals("--") ? grandTotal + 0 : grandTotal + Integer.parseInt(total);
         }
+
         request.setAttribute("summaryMap", stats);
 
         tf.setTotalRows(grandTotal);
@@ -220,6 +222,7 @@ public class ViewNotesServlet extends SecureController {
             request.setAttribute("allNotes", allNotes);
             forwardPage(Page.VIEW_DISCREPANCY_NOTES_IN_STUDY_PRINT);
         } else {
+            getEventCrfLocker().unlockAllForUser(ub.getId());
             forwardPage(Page.VIEW_DISCREPANCY_NOTES_IN_STUDY);
         }
     }

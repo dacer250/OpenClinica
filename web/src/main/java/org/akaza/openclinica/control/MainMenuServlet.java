@@ -7,8 +7,8 @@
  */
 package org.akaza.openclinica.control;
 
+import org.akaza.openclinica.bean.core.Utils;
 import org.akaza.openclinica.bean.login.StudyUserRoleBean;
-import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.bean.service.StudyParameterValueBean;
 import org.akaza.openclinica.control.admin.EventStatusStatisticsTableFactory;
@@ -28,11 +28,12 @@ import org.akaza.openclinica.dao.submit.SubjectDAO;
 import org.akaza.openclinica.dao.submit.SubjectGroupMapDAO;
 import org.akaza.openclinica.i18n.core.LocaleResolver;
 import org.akaza.openclinica.service.StudyBuildService;
-import org.akaza.openclinica.service.StudyBuildServiceImpl;
 import org.akaza.openclinica.view.Page;
 import org.akaza.openclinica.web.InsufficientPermissionException;
 import org.akaza.openclinica.web.table.sdv.SDVUtil;
 import org.apache.commons.lang.StringUtils;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
@@ -40,11 +41,10 @@ import javax.servlet.ServletContext;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.Locale;
+import java.util.*;
 
 /**
  * The main controller servlet for all the work behind study sites for
@@ -54,7 +54,8 @@ import java.util.Locale;
  */
 public class MainMenuServlet extends SecureController {
 
-    //Shaoyu Su
+    private final static String STUDY_ENV_UUID = "studyEnvUuid";
+
     Locale locale;
     private StudyEventDefinitionDAO studyEventDefinitionDAO;
     private SubjectDAO subjectDAO;
@@ -69,7 +70,7 @@ public class MainMenuServlet extends SecureController {
     private DiscrepancyNoteDAO discrepancyNoteDAO;
     private StudyParameterValueDAO studyParameterValueDAO;
 
-    // < ResourceBundle respage;
+    // ResourceBundle respage;
 
     @Override public void mayProceed() throws InsufficientPermissionException {
         locale = LocaleResolver.getLocale(request);
@@ -98,69 +99,33 @@ public class MainMenuServlet extends SecureController {
         return queryStr;
     }
 
-    public void processSpecificStudyEnvUuid(HttpServletRequest request, UserAccountBean ub) throws Exception {
-        String studyEnvUuid = (String) request.getParameter("studyEnvUuid");
-        if (StringUtils.isEmpty(studyEnvUuid)) {
-            return;
+    public String getTimeoutReturnToCookie(HttpServletRequest request, HttpServletResponse response) {
+        String queryStr = "";
+        if (ub == null || StringUtils.isEmpty(ub.getName()))
+            return queryStr;
+
+        Cookie[] cookies = request.getCookies();
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equalsIgnoreCase("bridgeTimeoutReturn-" + ub.getName())) {
+                try {
+                    queryStr = URLDecoder.decode(cookie.getValue(), "UTF-8");
+                } catch (UnsupportedEncodingException e) {
+                    logger.error("Error decoding redirect URL from queryStr cookie:" + e.getMessage());
+                }
+                cookie.setValue(null);
+                cookie.setMaxAge(0);
+                cookie.setPath("/");
+                if (response != null)
+                    response.addCookie(cookie);
+                break;
+            }
         }
-        ServletContext context = getServletContext();
-        WebApplicationContext ctx =
-                WebApplicationContextUtils
-                        .getWebApplicationContext(context);
-        String currentSchema = CoreResources.getRequestSchema(request);
-        CoreResources.setRequestSchema(request, "public");
-        StudyBuildService studyService = ctx.getBean("studyBuildService", StudyBuildServiceImpl.class);
-        studyService.updateStudyUserRoles(request, studyService.getUserAccountObject(ub), ub.getActiveStudyId());
-        UserAccountDAO userAccountDAO = new UserAccountDAO(sm.getDataSource());
-
-        ArrayList userRoleBeans = (ArrayList) userAccountDAO.findAllRolesByUserName(ub.getName());
-        ub.setRoles(userRoleBeans);
-        StudyDAO sd = getStudyDAO();
-        StudyBean study = sd.findByStudyEnvUuid(studyEnvUuid);
-        if (study == null) {
-            CoreResources.setRequestSchema(request,currentSchema);
-            return;
-        }
-        currentPublicStudy = study;
-        CoreResources.setRequestSchema(request, study.getSchemaName());
-        currentStudy = sd.findByStudyEnvUuid(studyEnvUuid);
-        
-        StudyConfigService scs = new StudyConfigService(sm.getDataSource());
-        scs.setParametersForStudy(currentStudy);
-        
-        session.setAttribute("publicStudy", currentPublicStudy);
-        session.setAttribute("study", currentStudy);
-
-        int parentStudyId = currentPublicStudy.getParentStudyId() > 0 ? currentPublicStudy.getParentStudyId() : currentPublicStudy.getId();
-        StudyUserRoleBean roleInParent = ub.getRoleByStudy(parentStudyId);
-
-        if (roleInParent.getStudyId() != parentStudyId) {
-            logger.error("You have no roles for this study.");
-            //throw new Exception("You have no roles for this study.");
-            currentStudy = new StudyBean();
-            currentPublicStudy = new StudyBean();
-            currentRole = new StudyUserRoleBean();
-
-            session.setAttribute("publicStudy", currentPublicStudy);
-            session.setAttribute("study", currentStudy);
-            session.setAttribute("userRole", currentRole);
-        } else {
-            currentRole = roleInParent;
-            session.setAttribute("userRole", roleInParent);
-            if (ub.getActiveStudyId() == parentStudyId)
-                return;
-            ub.setActiveStudyId(parentStudyId);
-        }
+        return queryStr;
     }
 
     @Override public void processRequest() throws Exception {
-        String queryStrCookie = getQueryStrCookie(request, response);
-        if (StringUtils.isNotEmpty(queryStrCookie)) {
-            response.sendRedirect(queryStrCookie);
-            return;
-        }
+
         FormProcessor fp = new FormProcessor(request);
-        ub.incNumVisitsToMainMenu();
         session.setAttribute(USER_BEAN_NAME, ub);
         request.setAttribute("iconInfoShown", true);
         request.setAttribute("closeInfoShowIcons", false);
@@ -175,15 +140,14 @@ public class MainMenuServlet extends SecureController {
         // time log in or pwd expired
         // update last visit date to current date
         UserAccountDAO udao = new UserAccountDAO(sm.getDataSource());
-        UserAccountBean ub1 = (UserAccountBean) udao.findByPK(ub.getId());
-        processSpecificStudyEnvUuid(request, ub1);
-        ub1.setLastVisitDate(new Date(System.currentTimeMillis()));
+
+        ub.setLastVisitDate(new Date(System.currentTimeMillis()));
         // have to actually set the above to a timestamp? tbh
-        ub1.setOwner(ub1);
-        ub1.setUpdater(ub1);
-        udao.update(ub1);
+        udao.update(ub);
 
         if (!currentRole.isActive()) {
+            String paramStr = Utils.getParamsString(request.getParameterMap());
+            request.setAttribute("prevPageParams", paramStr);
             forwardPage(Page.CHANGE_STUDY_SERVLET, false);
             return;
         }
@@ -192,30 +156,16 @@ public class MainMenuServlet extends SecureController {
         if (currentStudy != null) {
             request.setAttribute("studyId", currentStudy.getId());
             // Event Definition list and Group Class list for add suybject window.
-            request.setAttribute("allDefsArray", super.getEventDefinitionsByCurrentStudy());
+            // request.setAttribute("allDefsArray", super.getEventDefinitionsByCurrentStudy());
             request.setAttribute("studyGroupClasses", super.getStudyGroupClassesByCurrentStudy());
         }
 
         logger.info("is ub a ldapuser??" + ub.isLdapUser());
 
         if (currentStudy == null) {
+            logger.error("CurrentStudy is null: forwarding to menu.jsp");
             forwardPage(Page.MENU);
             return;
-        }
-
-        if (ub.getNumVisitsToMainMenu() <= 1) {
-            if (ub.getLastVisitDate() != null) {
-                addPageMessage(respage.getString("welcome") + " " + ub.getFirstName() + " " + ub.getLastName() + ". " + respage.getString("last_logged") + " "
-                        + local_df.format(ub.getLastVisitDate()) + ". ");
-            } else {
-                addPageMessage(respage.getString("welcome") + " " + ub.getFirstName() + " " + ub.getLastName() + ". ");
-            }
-
-            if (currentStudy.getStatus().isLocked()) {
-                addPageMessage(respage.getString("current_study_locked"));
-            } else if (currentStudy.getStatus().isFrozen()) {
-                addPageMessage(respage.getString("current_study_frozen"));
-            }
         }
 
         ////Integer assignedDiscrepancies = getDiscrepancyNoteDAO().countAllItemDataByStudyAndUser(currentStudy, ub);
@@ -242,12 +192,12 @@ public class MainMenuServlet extends SecureController {
         setPresetValues(fp.getPresetValues());
 
         if (currentRole.isInvestigator() || currentRole.isResearchAssistant() || currentRole.isResearchAssistant2()) {
-            ub.decNumVisitsToMainMenu();
             forwardPage(Page.LIST_STUDY_SUBJECTS_SERVLET);
+            return;
         }
         if (currentRole.isMonitor()) {
-            ub.decNumVisitsToMainMenu();
             response.sendRedirect(request.getContextPath() + "/pages/viewAllSubjectSDVtmp?sdv_restore=true&studyId=" + currentStudy.getId());
+            return;
         } else if (currentRole.isCoordinator() || currentRole.isDirector()) {
             setupStudySiteStatisticsTable();
             setupSubjectEventStatusStatisticsTable();
@@ -257,16 +207,19 @@ public class MainMenuServlet extends SecureController {
             }
 
         }
+        logger.info("Current Role:" + currentRole.getRole().getName());
+   //     StudyUserRoleBean userRole = (StudyUserRoleBean) session.getAttribute("userRole");
+   //     logger.info("User Role:" + userRole.getName());
 
         forwardPage(Page.MENU);
     }
 
     private void setupSubjectSDVTable() {
 
-        request.setAttribute("studyId", currentStudy.getId());
-        request.setAttribute("showMoreLink", "true");
-        String sdvMatrix = getSDVUtil().renderEventCRFTableWithLimit(request, currentStudy.getId(), "");
-        request.setAttribute("sdvMatrix", sdvMatrix);
+   //     request.setAttribute("studyId", currentStudy.getId());
+   //     request.setAttribute("showMoreLink", "true");
+   //     String sdvMatrix = getSDVUtil().renderEventCRFTableWithLimit(request, currentStudy.getId(), "");
+   //     request.setAttribute("sdvMatrix", sdvMatrix);
     }
 
     private void setupStudySubjectStatusStatisticsTable() {
@@ -275,6 +228,7 @@ public class MainMenuServlet extends SecureController {
         factory.setStudySubjectDao(getStudySubjectDAO());
         factory.setCurrentStudy(currentStudy);
         factory.setStudyDao(getStudyDAO());
+
         String studySubjectStatusStatistics = factory.createTable(request, response).render();
         request.setAttribute("studySubjectStatusStatistics", studySubjectStatusStatistics);
     }

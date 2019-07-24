@@ -9,6 +9,7 @@ import java.util.Locale;
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
 
+import io.swagger.annotations.Api;
 import org.akaza.openclinica.bean.core.DiscrepancyNoteType;
 import org.akaza.openclinica.bean.core.ResolutionStatus;
 import org.akaza.openclinica.bean.login.UserAccountBean;
@@ -41,6 +42,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 @Controller
 @RequestMapping(value = "/auth/api/v1/discrepancynote")
+@Api(value = "Query", tags = { "Query" }, description = "REST API for Query")
 @ResponseStatus(value = org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
 public class DiscrepancyNoteController {
 
@@ -193,6 +195,7 @@ public class DiscrepancyNoteController {
         DiscrepancyNoteBean eventParentNote = (DiscrepancyNoteBean) getDnDao().findByPK(dnb.getParentDnId());
         eventParentNote.setResolutionStatusId(dnb.getResolutionStatusId());
         eventParentNote.setDiscrepancyNoteTypeId(dnb.getDiscrepancyNoteTypeId());
+        eventParentNote.setDetailedNotes(detailedNotes);
         eventParentNote.setAssignedUserId(assignedUserBean.getId());
         eventParentNote.setUpdater(ownerBean);
         getDnDao().update(eventParentNote); // update parent DN

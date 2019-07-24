@@ -8,7 +8,6 @@ import org.akaza.openclinica.core.OCMultiTenantSpringLiquibase;
 import org.akaza.openclinica.core.OCSpringLiquibase;
 import org.akaza.openclinica.dao.hibernate.SchemaServiceDao;
 import org.akaza.openclinica.dao.hibernate.StudyDao;
-import org.akaza.openclinica.dao.hibernate.StudyUserRoleDao;
 import org.akaza.openclinica.dao.hibernate.UserAccountDao;
 import org.akaza.openclinica.domain.datamap.Study;
 import org.akaza.openclinica.domain.user.UserAccount;
@@ -76,11 +75,14 @@ public class LiquibaseOnDemandServiceImpl implements LiquibaseOnDemandService {
             schemaStudy.setDateCreated(new Date());
             schemaStudy.setEnvType(studyInfoObject.getStudy().getEnvType());
             schemaStudy.setStudyEnvSiteUuid(studyInfoObject.getStudy().getStudyEnvSiteUuid());
+            schemaStudy.setStudyUuid(studyInfoObject.getStudy().getStudyUuid());
             schemaStudy.setStudyEnvUuid(studyInfoObject.getStudy().getStudyEnvUuid());
             schemaStudy.setDatePlannedStart(studyInfoObject.getStudy().getDatePlannedStart());
             schemaStudy.setDatePlannedEnd(studyInfoObject.getStudy().getDatePlannedEnd());
             schemaStudy.setExpectedTotalEnrollment((studyInfoObject.getStudy().getExpectedTotalEnrollment()));
             schemaStudy.setProtocolType(studyInfoObject.getStudy().getProtocolType());
+            schemaStudy.setProtocolDescription(studyInfoObject.getStudy().getProtocolDescription());
+            schemaStudy.setPhase(studyInfoObject.getStudy().getPhase());
 
             schemaServiceDao.setConnectionSchemaName(studyInfoObject.getSchema());
             studyDao.getCurrentSession().clear();

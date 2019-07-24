@@ -9,7 +9,6 @@ public class ErrorObj {
     }
 
     public ErrorObj(String code, String message) {
-        super();
         this.code = code;
         this.message = message;
     }
@@ -30,4 +29,11 @@ public class ErrorObj {
         this.message = message;
     }
 
+    @Override
+    public String toString() {
+        return "ErrorObj{" +
+                "code='" + code + '\'' +
+                ", message='" + message + '\'' +
+                '}';
+    }
 }

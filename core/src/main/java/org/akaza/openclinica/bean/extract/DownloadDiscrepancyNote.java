@@ -195,9 +195,11 @@ public class DownloadDiscrepancyNote implements DownLoadBean{
         //If includeHeaderRow = true, the first row of the output consists of header names, only
         //for CSV format
         if(includeHeaderRow) {
-            writer.append("Study Subject ID");
+            writer.append("Query ID");
             writer.append(",");
-            writer.append("Subject Status");
+            writer.append("Participant ID");
+            writer.append(",");
+            writer.append("Participant Status");
             writer.append(",");
             writer.append("Study/Site OID");
             writer.append(",");
@@ -256,6 +258,13 @@ public class DownloadDiscrepancyNote implements DownLoadBean{
 
         //Fields with embedded commas must be
         // delimited with double-quote characters.
+        String tn = "N/A";
+        if (discNoteBean.getThreadNumber() != null && discNoteBean.getThreadNumber() != 0 ) {
+            tn = discNoteBean.getThreadNumber()+"";
+        }
+        writer.append(escapeQuotesInCSV(tn));
+        writer.append(",");
+
         writer.append(escapeQuotesInCSV(discNoteBean.getStudySub().getLabel()));
         writer.append(",");
 
@@ -643,7 +652,7 @@ public class DownloadDiscrepancyNote implements DownLoadBean{
 
             //Add at least three more rows of data -- dnBean.getSubjectName()
             //row 1
-            cell = createCell("Study Subject",dnBean.getSubjectName());
+            cell = createCell("Participant",dnBean.getSubjectName());
             table.addCell(cell);
 
             cell = createCell("Study Event",dnBean.getEventName());
@@ -686,6 +695,14 @@ public class DownloadDiscrepancyNote implements DownLoadBean{
 
             String daysSinceUpdated = escapeQuotesInCSV(dnBean.getDays()+"");
             cell = createCell("Days Since Updated", daysSinceUpdated.equals("0") ? "" : daysSinceUpdated +"");
+            table.addCell(cell);
+
+            String tn = "N/A";
+            if (dnBean.getThreadNumber() != null && dnBean.getThreadNumber() != 0 ) {
+                tn = dnBean.getThreadNumber()+"";
+            }
+            cell = createCell("Query ID", tn);
+            cell.setColspan(2);
             table.addCell(cell);
             
         }

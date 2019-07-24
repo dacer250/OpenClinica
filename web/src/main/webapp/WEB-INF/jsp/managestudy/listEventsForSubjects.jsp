@@ -18,7 +18,8 @@
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jquery.jmesa.js"></script>
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jmesa.js"></script>
 <script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery.blockUI.js"></script>
-<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.1.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.4.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="includes/permissionTagAccess.js"></script>
 
 <script type="text/javascript">
     function onInvokeAction(id,action) {
@@ -101,7 +102,7 @@
 
 <h1><span class="title_manage">
 <fmt:message key="view_subjects_in" bundle="${restext}"/> <c:out value="${study.name}"/>
-</span></h1>
+</span></h1><br/>
 
 <div id="findSubjectsDiv">
     <form  action="${pageContext.request.contextPath}/ListEventsForSubjects">

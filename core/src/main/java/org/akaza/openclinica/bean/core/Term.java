@@ -53,6 +53,11 @@ public class Term extends EntityBean {
         // return this.description;
     }
 
+    public String getPlainDescription() {
+            return this.description;
+    }
+
+
     /**
      * @param description
      *            The description to set.
@@ -99,7 +104,11 @@ public class Term extends EntityBean {
     public String getName() {
         // *
         ResourceBundle resterm = ResourceBundleProvider.getTermsBundle();
-        String name = resterm.getString(this.name);
+        String name = null;
+        if(resterm != null) {
+        	 name = resterm.getString(this.name);
+        }
+       
         if(name != null) {
            return name.trim();
         }  else {

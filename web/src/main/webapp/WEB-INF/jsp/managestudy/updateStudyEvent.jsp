@@ -9,7 +9,6 @@
 <jsp:useBean scope="request" id="studyEvent" class="org.akaza.openclinica.bean.managestudy.StudyEventBean" />
 <jsp:useBean scope="request" id="studySubject" class="org.akaza.openclinica.bean.managestudy.StudySubjectBean" />
 
-
 <link rel="stylesheet" href="includes/font-awesome-4.7.0/css/font-awesome.css">
 
 <c:choose>
@@ -116,6 +115,7 @@
   <td><div class="formfieldXL_BG">
   &nbsp;&nbsp;<c:out value="${eventDefinition.name}"/></div>
   </td></tr>
+  <c:if test="${eventDefinition.type !='common'}">
   <tr valign="top">
     <td class="formlabel"><fmt:message key="start_date_time" bundle="${resword}"/>:</td>
       <td valign="top">
@@ -171,6 +171,8 @@
       </table>
     </td>
   </tr>
+    </c:if>
+  
     <c:if test="${study.studyParameterConfig.eventLocationRequired != 'not_used'}">
     <tr valign="top"><td class="formlabel"><fmt:message key="location" bundle="${resword}"/>:</td>
     <td>

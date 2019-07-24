@@ -5,10 +5,12 @@ import static org.akaza.openclinica.dao.hibernate.multitenant.CurrentTenantIdent
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Properties;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import javax.sql.DataSource;
 
 import org.akaza.openclinica.bean.core.Role;
@@ -26,6 +28,8 @@ import org.akaza.openclinica.job.AutowiringSpringBeanJobFactory;
 import org.akaza.openclinica.job.JobExecutionExceptionListener;
 import org.akaza.openclinica.job.JobTriggerListener;
 import org.akaza.openclinica.job.OpenClinicaSchedulerFactoryBean;
+import org.akaza.openclinica.service.PermissionService;
+import org.akaza.openclinica.service.dto.ODMFilterDTO;
 import org.akaza.openclinica.service.extract.ExtractUtils;
 import org.akaza.openclinica.service.extract.XsltTriggerService;
 import org.akaza.openclinica.web.SQLInitServlet;
@@ -72,6 +76,9 @@ public class ExtractController {
     @Autowired
     private OpenClinicaSchedulerFactoryBean schedulerFactoryBean;
 
+    @Autowired
+    private PermissionService permissionService;
+
     public static String TRIGGER_GROUP_NAME = "XsltTriggers";
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
 
@@ -88,7 +95,7 @@ public class ExtractController {
      */
     @RequestMapping(method = RequestMethod.GET)
     public ModelMap processSubmit(@RequestParam("id") String id,
-            @RequestParam("datasetId") String datasetId, HttpServletRequest request, HttpServletResponse response)  {
+                                  @RequestParam("datasetId") String datasetId, HttpServletRequest request, HttpServletResponse response) {
         if(!mayProceed(request)){
             try{
                 response.sendRedirect(request.getContextPath() + "/MainMenu?message=authentication_failed");
@@ -110,7 +117,7 @@ public class ExtractController {
         datasetDao = new DatasetDAO(dataSource);
         UserAccountBean userBean = (UserAccountBean) request.getSession().getAttribute("userBean");
         CoreResources cr =  new CoreResources();
-        
+
 
         ExtractPropertyBean epBean = cr.findExtractPropertyBeanById(new Integer(id).intValue(),datasetId);
 
@@ -179,16 +186,32 @@ public class ExtractController {
             e.printStackTrace();
         }
         jobScheduler = getSchemaScheduler(request, context, jobScheduler);
+        String permissionTagsString =permissionService.getPermissionTagsString((StudyBean)request.getSession().getAttribute("study"),request);
+        String[] permissionTagsStringArray =permissionService.getPermissionTagsStringArray((StudyBean)request.getSession().getAttribute("study"),request);
+        List<String> permissionTagsList =permissionService.getPermissionTagsList((StudyBean)request.getSession().getAttribute("study"),request);
+        ODMFilterDTO odmFilter = new ODMFilterDTO();
+
+
+        try {
+            jobScheduler.getContext().put("permissionTagsString",permissionTagsString);
+            jobScheduler.getContext().put("permissionTagsStringArray",permissionTagsStringArray);
+            jobScheduler.getContext().put("permissionTagsList",permissionTagsList);
+            jobScheduler.getContext().put("odmFilter", odmFilter);
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+
+
         // String xmlFilePath = generalFileDir + ODMXMLFileName;
         simpleTrigger = xsltService.generateXsltTrigger(jobScheduler, xsltPath,
                 generalFileDir, // xml_file_path
                 endFilePath + File.separator,
                 exportFileName,
                 dsBean.getId(),
-                epBean, 
-                userBean, 
+                epBean,
+                userBean,
                 LocaleResolver.getLocale(request).getLanguage(),
-                cnt,  
+                cnt,
                 SQLInitServlet.getField("filePath") + "xslt",
                 this.TRIGGER_GROUP_NAME,
                 (StudyBean) request.getSession().getAttribute("publicStudy"),
@@ -405,7 +428,9 @@ public class ExtractController {
 
     private boolean mayProceed(HttpServletRequest request) {
 
-        StudyUserRoleBean currentRole = (StudyUserRoleBean)request.getSession().getAttribute("userRole");
+        HttpSession session = request.getSession();
+        StudyUserRoleBean currentRole = (StudyUserRoleBean) session.getAttribute("userRole");
+
         Role r = currentRole.getRole();
 
         if (r.equals(Role.STUDYDIRECTOR) || r.equals(Role.COORDINATOR) || r.equals(Role.MONITOR)

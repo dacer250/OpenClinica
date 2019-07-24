@@ -9,7 +9,6 @@ import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.bean.managestudy.StudyGroupClassBean;
 import org.akaza.openclinica.bean.submit.EventCRFBean;
 import org.akaza.openclinica.control.SpringServletAccess;
-import org.akaza.openclinica.core.CRFLocker;
 import org.akaza.openclinica.core.EmailEngine;
 import org.akaza.openclinica.core.SessionManager;
 import org.akaza.openclinica.dao.core.AuditableEntityDAO;
@@ -93,7 +92,6 @@ public abstract class CoreSecureController extends HttpServlet {
     protected HashMap errors = new HashMap();
     protected StudyInfoPanel panel = new StudyInfoPanel();
     private StdScheduler scheduler;
-    private CRFLocker crfLocker;
 
     // user is in
 
@@ -120,7 +118,6 @@ public abstract class CoreSecureController extends HttpServlet {
         ApplicationContext appCtx = SpringServletAccess.getApplicationContext(context);
         SessionManager sm = new SessionManager(appCtx);
         dataSource = sm.getDataSource();
-        this.crfLocker = appCtx.getBean(CRFLocker.class);
     }
 
     // @pgawade: 02Jan2012: Changed the scope for getter to protected so it will
@@ -258,19 +255,6 @@ public abstract class CoreSecureController extends HttpServlet {
         return scheduler;
     }
 
-    private void unlockCRFOnError(HttpServletRequest req) {
-        if (req != null) {
-            EventCRFBean eventCrf = (EventCRFBean) req.getAttribute("event");
-            UserAccountBean ub = (UserAccountBean) req.getSession().getAttribute(USER_BEAN_NAME);
-
-            if (eventCrf != null && crfLocker.isLocked(eventCrf.getId())) {
-                if (ub != null && ub.getId() == crfLocker.getLockOwner(eventCrf.getId()))
-                    crfLocker.unlock(eventCrf.getId());
-                else if (ub == null)
-                    crfLocker.unlock(eventCrf.getId());
-            }
-        }
-    }
 
     private void process(HttpServletRequest request, HttpServletResponse response) throws OpenClinicaException, UnsupportedEncodingException {
 
@@ -281,7 +265,9 @@ public abstract class CoreSecureController extends HttpServlet {
         // BWP >> 1/8/2008
         try {
             // YW 10-03-2007 <<
+            // Since we are managing the session on our own, disable Tomcat session timeout
             session.setMaxInactiveInterval(Integer.parseInt(SQLInitServlet.getField("max_inactive_interval")));
+
             // YW >>
         } catch (NumberFormatException nfe) {
             // BWP>>3600 is the datainfo.properties maxInactiveInterval on
@@ -384,7 +370,37 @@ public abstract class CoreSecureController extends HttpServlet {
                 // YW >>
             }
 
-            if (currentStudy.getParentStudyId() > 0) {
+
+            if (currentRole == null || currentRole.getId() <= 0) {
+                // if (ub.getId() > 0 && currentStudy.getId() > 0) {
+                // if current study has been "removed", current role will be
+                // kept as "invalid" -- YW 06-21-2007
+                if (ub.getId() > 0 && currentStudy.getId() > 0 && !currentStudy.getStatus().getName().equals("removed")) {
+                    currentRole = ub.getRoleByStudy(currentStudy.getId());
+                    if (currentStudy.getParentStudyId() > 0) {
+                        // Checking if currentStudy has been removed or not will
+                        // ge good enough -- YW 10-17-2007
+                        StudyUserRoleBean roleInParent = ub.getRoleByStudy(currentStudy.getParentStudyId());
+                        // inherited role from parent study, pick the higher
+                        // role
+                        currentRole.setRole(Role.max(currentRole.getRole(), roleInParent.getRole()));
+                    }
+                    // logger.info("currentRole:" + currentRole.getRoleName());
+                } else {
+                    currentRole = new StudyUserRoleBean();
+                }
+                session.setAttribute("userRole", currentRole);
+            }
+            // YW << For the case that current role is not "invalid" but current
+            // active study has been removed.
+            else if (currentRole.getId() > 0 && (currentStudy.getStatus().equals(Status.DELETED) || currentStudy.getStatus().equals(Status.AUTO_DELETED))) {
+                currentRole.setRole(Role.INVALID);
+                currentRole.setStatus(Status.DELETED);
+                session.setAttribute("userRole", currentRole);
+            }
+            StudyBean userRoleStudy = CoreResources.getPublicStudy(currentRole.getStudyId(), dataSource);
+
+            if (userRoleStudy.getParentStudyId() > 0) {
                 /*
                  * The Role decription will be set depending on whether the user
                  * logged in at study lever or site level. issue-2422
@@ -410,6 +426,9 @@ public abstract class CoreSecureController extends HttpServlet {
                         break;
                     case 7:
                         role.setDescription("site_Data_Entry_Person2");
+                        break;
+                    case 8:
+                        role.setDescription("site_Data_Entry_Participant");
                         break;
                     default:
                         // logger.info("No role matched when setting role description");
@@ -445,33 +464,7 @@ public abstract class CoreSecureController extends HttpServlet {
                 }
             }
 
-            if (currentRole == null || currentRole.getId() <= 0) {
-                // if (ub.getId() > 0 && currentStudy.getId() > 0) {
-                // if current study has been "removed", current role will be
-                // kept as "invalid" -- YW 06-21-2007
-                if (ub.getId() > 0 && currentStudy.getId() > 0 && !currentStudy.getStatus().getName().equals("removed")) {
-                    currentRole = ub.getRoleByStudy(currentStudy.getId());
-                    if (currentStudy.getParentStudyId() > 0) {
-                        // Checking if currentStudy has been removed or not will
-                        // ge good enough -- YW 10-17-2007
-                        StudyUserRoleBean roleInParent = ub.getRoleByStudy(currentStudy.getParentStudyId());
-                        // inherited role from parent study, pick the higher
-                        // role
-                        currentRole.setRole(Role.max(currentRole.getRole(), roleInParent.getRole()));
-                    }
-                    // logger.info("currentRole:" + currentRole.getRoleName());
-                } else {
-                    currentRole = new StudyUserRoleBean();
-                }
-                session.setAttribute("userRole", currentRole);
-            }
-            // YW << For the case that current role is not "invalid" but current
-            // active study has been removed.
-            else if (currentRole.getId() > 0 && (currentStudy.getStatus().equals(Status.DELETED) || currentStudy.getStatus().equals(Status.AUTO_DELETED))) {
-                currentRole.setRole(Role.INVALID);
-                currentRole.setStatus(Status.DELETED);
-                session.setAttribute("userRole", currentRole);
-            }
+
             // YW 06-19-2007 >>
 
             request.setAttribute("isAdminServlet", getAdminServlet());
@@ -506,18 +499,15 @@ public abstract class CoreSecureController extends HttpServlet {
         } catch (InconsistentStateException ise) {
             ise.printStackTrace();
             LOGGER.warn("InconsistentStateException: org.akaza.openclinica.control.CoreSecureController: ", ise);
-            unlockCRFOnError(request);
             addPageMessage(ise.getOpenClinicaMessage(), request);
             forwardPage(ise.getGoTo(), request, response);
         } catch (InsufficientPermissionException ipe) {
             ipe.printStackTrace();
             LOGGER.warn("InsufficientPermissionException: org.akaza.openclinica.control.CoreSecureController: ", ipe);
-            unlockCRFOnError(request);
             // addPageMessage(ipe.getOpenClinicaMessage());
             forwardPage(ipe.getGoTo(), request, response);
         } catch (Exception e) {
             LOGGER.error("Error processing request", e);
-            unlockCRFOnError(request);
             forwardPage(Page.ERROR, request, response);
         }
 
@@ -544,7 +534,6 @@ public abstract class CoreSecureController extends HttpServlet {
             process(request, response);
         } catch (Exception e) {
             LOGGER.error("Error processing request", e);
-            unlockCRFOnError(request);
         }
     }
 
@@ -560,7 +549,6 @@ public abstract class CoreSecureController extends HttpServlet {
             process(request, response);
         } catch (Exception e) {
             LOGGER.error("Error processing request", e);
-            unlockCRFOnError(request);
         }
     }
 
@@ -937,11 +925,6 @@ public abstract class CoreSecureController extends HttpServlet {
 
     }
 
-    public void unlockCRFsForUser(int userId) {
-        crfLocker.unlockAllForUser(userId);
-
-    }
-
     // JN:Doesnt look like the following method is used anywhere, commenting out
     /*
      * public void dowloadFile(File f, String contentType) throws Exception {
@@ -978,9 +961,6 @@ public abstract class CoreSecureController extends HttpServlet {
      * null) { url += "?" + query; } return url; }
      */
 
-    public CRFLocker getCrfLocker() {
-        return crfLocker;
-    }
 
     /**
      * A inner class designed to allow the implementation of a JUnit test case

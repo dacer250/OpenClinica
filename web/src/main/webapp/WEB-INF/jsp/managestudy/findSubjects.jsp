@@ -11,6 +11,11 @@
 <jsp:include page="../include/sideAlert.jsp"/>
 
 <link rel="stylesheet" href="includes/jmesa/jmesa.css" type="text/css">
+<style>
+    .icon > span {
+        font-family: 'Open Sans', arial, helvetica, sans-serif;
+    }
+</style>
 
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jquery.min.js"></script>
 <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jquery.jmesa.js"></script>
@@ -18,7 +23,11 @@
 <%-- <script type="text/JavaScript" language="JavaScript" src="includes/jmesa/jmesa-original.js"></script> --%>
 <script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery.blockUI.js"></script>
 
-<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.1.1.js"></script>
+<script type="text/javascript" language="JavaScript" src="includes/jmesa/jquery-migrate-1.4.1.js"></script>
+
+<c:if test="${participantIDVerification == 'true'}">
+    <script type="text/javascript" language="JavaScript" src="js/lib/bootstrap-tour.js"></script>
+</c:if>
 
 <script type="text/javascript">
     function onInvokeAction(id,action) {
@@ -41,19 +50,28 @@
             jQuery.unblockUI();
             return false;
         });
-    });
-    </script>
 
-<c:if test="${(study.status.locked || study.status.frozen || study.status.pending)}">
-    <c:if test="${userBean.numVisitsToMainMenu<=1 || studyJustChanged=='yes'}">
-        <script type="text/javascript">
-            $(window).on('load', function () {
-                initmb();
-                sm('box', 730,100);
-            });
-        </script>
-    </c:if>
-</c:if>
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('addNewSubject')) {
+            jQuery('#addSubject').click();
+        }
+
+        sessionStorage.setItem("pageContextPath", "<c:out value='${pageContext.request.contextPath}' />");
+        sessionStorage.setItem("studyOid", "<c:out value='${study.oid}' />");
+        sessionStorage.setItem("studyName", "<c:out value='${study.name}' />");
+        sessionStorage.setItem("studyParentId", "<c:out value='${study.parentStudyId}' />");
+        sessionStorage.setItem("siteSubStringMark", "<c:out value='${siteSubStringMark}' />");
+    });
+
+    window.onload = function() {
+        document.getElementById("btn").focus();
+            <c:if test="${showOverlay}">
+                jQuery.blockUI({ message: jQuery('#addSubjectForm'), css:{left: "300px", top:"10px" } });
+            </c:if>
+    };
+
+
+</script>
 
 <!-- then instructions-->
 <tr id="sidebar_Instructions_open" style="display: none">
@@ -85,7 +103,7 @@
 <jsp:useBean scope='request' id='crf' class='org.akaza.openclinica.bean.admin.CRFBean'/>
 
 
-<h1>   
+<h1>
     <span class="title_manage">
         <fmt:message key="view_subjects_in" bundle="${restext}"/> <c:out value="${study.name}"/>
     </span>
@@ -98,13 +116,13 @@
         <c:if test="${(!study.status.pending)}">
             <fmt:message key="study_frozen_locked_note" bundle="${restext}"/>
         </c:if>
-        
+
         <c:if test="${(study.status.pending)}">
             <fmt:message key="study_design_note" bundle="${restext}"/>
-        </c:if>   
+        </c:if>
     </span><br>
     <div style="text-align:center; width:100%;">
-        <button onclick="hm('box');">OK</button>
+        <button id="btn" onclick="hm('box');">OK</button>
     </div>
 </div>
 
@@ -122,12 +140,5 @@
     </div>
 </c:if>
 
-
 <br>
 <jsp:include page="../include/footer.jsp"/>
-
-<script type="text/javascript">
-    <c:if test="${showOverlay}">
-        jQuery.blockUI({ message: jQuery('#addSubjectForm'), css:{left: "300px", top:"10px" } });
-    </c:if>
-</script>

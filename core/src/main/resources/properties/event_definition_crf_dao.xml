@@ -47,6 +47,26 @@
         </sql>
     </query>
     
+    
+    <query>
+        <name>findAllCrfsForStudySiteFilteredWithTagIds</name>
+        <sql>SELECT edc.* FROM event_definition_crf edc where study_id in (?,?)
+			and event_definition_crf_id not in (SELECT parent_id FROM event_definition_crf where study_id in (?) and parent_id !=0 )
+			and event_definition_crf_id not in (select event_definition_crf_id from event_definition_crf_permission_tag where permission_tag_id != all (?))
+			and coalesce(edc.parent_id,0) not in (select event_definition_crf_id from event_definition_crf_permission_tag where permission_tag_id != all (?)) ;
+        </sql>
+    </query>
+
+	<query>
+		<name>findAllStudySiteFiltered</name>
+		<sql>SELECT edc.* FROM event_definition_crf edc where study_id in (?,?)
+			and event_definition_crf_id not in (SELECT parent_id FROM event_definition_crf where study_id in (?) and parent_id !=0 )
+			and event_definition_crf_id not in (select event_definition_crf_id from event_definition_crf_permission_tag )
+			and coalesce(edc.parent_id,0) not in (select event_definition_crf_id from event_definition_crf_permission_tag ) ;
+		</sql>
+	</query>
+    
+    
 	<query>
 		<name>findAllParentsByDefinition</name>
 		<!-- find all which have unavailable parent_id.

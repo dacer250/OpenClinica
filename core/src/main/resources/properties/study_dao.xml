@@ -73,6 +73,12 @@
 		</sql>
 	</query>
 	<query>
+		<name>findByPublicPK</name>
+		<sql>SELECT s.* FROM public.study s
+			WHERE s.study_id = ?
+		</sql>
+	</query>
+	<query>
         <name>findByUniqueIdentifier</name>
         <sql>SELECT s.* FROM study s
            WHERE s.unique_identifier = ?
@@ -91,6 +97,21 @@
                 site.parent_study_id = study.study_id and
                 study.unique_identifier = ? and   
                 site.unique_identifier = ?
+         </sql>
+    </query>
+    <query>
+        <name>findSiteByOid</name>
+        <sql>select site.* from study site, study study where
+                site.parent_study_id = study.study_id and
+                study.oc_oid = ? and   
+                site.oc_oid = ?
+         </sql>
+    </query>
+    <query>
+        <name>findStudyByOid</name>
+        <sql>SELECT s.* FROM study s
+			WHERE s.parent_study_id is null 
+			and s.OC_OID =?
          </sql>
     </query>
 	<query>
@@ -129,7 +150,7 @@
 		SPONSOR=?, COLLABORATORS=?, MEDLINE_IDENTIFIER=?, results_reference=?,
 		URL=?,URL_DESCRIPTION=?, CONDITIONS=?, KEYWORDS=?, ELIGIBILITY=?,
 		GENDER=?, AGE_MAX=?, AGE_MIN=?, HEALTHY_VOLUNTEER_ACCEPTED=?,
-        SCHEMA_NAME=?, STUDY_ENV_UUID=?, STUDY_ENV_SITE_UUID=?, PUBLISHED=?
+        SCHEMA_NAME=?, STUDY_ENV_UUID=?, STUDY_ENV_SITE_UUID=?, PUBLISHED=?, FILE_PATH=?,SUBJECT_COUNT=?,STUDY_UUID=?
 		WHERE STUDY_ID=?
       </sql>
 	</query>

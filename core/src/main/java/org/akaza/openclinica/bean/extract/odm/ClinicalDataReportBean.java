@@ -7,26 +7,43 @@
  */
 package org.akaza.openclinica.bean.extract.odm;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-
-import org.akaza.openclinica.bean.odmbeans.AuditLogBean;
-import org.akaza.openclinica.bean.odmbeans.AuditLogsBean;
-import org.akaza.openclinica.bean.odmbeans.ChildNoteBean;
-import org.akaza.openclinica.bean.odmbeans.DiscrepancyNoteBean;
-import org.akaza.openclinica.bean.odmbeans.DiscrepancyNotesBean;
-import org.akaza.openclinica.bean.odmbeans.OdmClinicalDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.ExportFormDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.ExportStudyEventDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.ExportSubjectDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.ImportItemDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.ImportItemGroupDataBean;
-import org.akaza.openclinica.bean.submit.crfdata.SubjectGroupDataBean;
+import org.akaza.openclinica.bean.admin.CRFBean;
+import org.akaza.openclinica.bean.core.Role;
+import org.akaza.openclinica.bean.login.StudyUserRoleBean;
+import org.akaza.openclinica.bean.login.UserAccountBean;
+import org.akaza.openclinica.bean.managestudy.EventDefinitionCRFBean;
+import org.akaza.openclinica.bean.managestudy.StudyBean;
+import org.akaza.openclinica.bean.managestudy.StudyEventBean;
+import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
+import org.akaza.openclinica.bean.odmbeans.*;
+import org.akaza.openclinica.bean.submit.crfdata.*;
+import org.akaza.openclinica.dao.admin.CRFDAO;
+import org.akaza.openclinica.dao.core.CoreResources;
+import org.akaza.openclinica.dao.hibernate.EventDefinitionCrfDao;
+import org.akaza.openclinica.dao.hibernate.EventDefinitionCrfPermissionTagDao;
+import org.akaza.openclinica.dao.managestudy.EventDefinitionCRFDAO;
+import org.akaza.openclinica.dao.managestudy.StudyDAO;
+import org.akaza.openclinica.dao.managestudy.StudyEventDAO;
+import org.akaza.openclinica.dao.managestudy.StudyEventDefinitionDAO;
+import org.akaza.openclinica.dao.submit.EventCRFDAO;
+import org.akaza.openclinica.domain.EventCRFStatus;
+import org.akaza.openclinica.domain.Status;
+import org.akaza.openclinica.domain.datamap.*;
+import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
+import org.akaza.openclinica.service.PermissionService;
+import org.akaza.openclinica.service.dto.ODMFilterDTO;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.sql.DataSource;
+import java.awt.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Create ODM XML ClinicalData Element for a study.
@@ -36,17 +53,28 @@ import org.springframework.util.StringUtils;
 
 public class ClinicalDataReportBean extends OdmXmlReportBean {
     private OdmClinicalDataBean clinicalData;
+    private DataSource dataSource;
+    private UserAccountBean userBean;
+    protected Locale locale = ResourceBundleProvider.getLocale();
+    private final String COMMON = "common";
+    private StudyDAO sdao;
+    private String[] permissionTagsStringArray;
+    private ODMFilterDTO odmFilter;
 
-    public ClinicalDataReportBean(OdmClinicalDataBean clinicaldata) {
+    public ClinicalDataReportBean(OdmClinicalDataBean clinicaldata, DataSource dataSource, UserAccountBean userBean , ODMFilterDTO odmFilter, String[] permissionTagsStringArray) {
         super();
         this.clinicalData = clinicaldata;
+        this.dataSource = dataSource;
+        this.userBean = userBean;
+        this.permissionTagsStringArray=permissionTagsStringArray;
+        this.odmFilter = odmFilter;
+
     }
 
     /**
      * has not been implemented yet
      */
-    @Override
-    public void createOdmXml(boolean isDataset) {
+    public void createOdmXml(boolean isDataset, boolean enketo) {
         // this.addHeading();
         // this.addRootStartLine();
         // addNodeClinicalData();
@@ -64,6 +92,22 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
                     + StringEscapeUtils.escapeXml(this.clinicalData.getMetaDataVersionOID()) + "\">");
             xml.append(nls);
         }
+        Role role = null; // OpenClinica:
+        StudyUserRoleBean userRole = null;
+        StudyBean publicStudyBean = CoreResources.getPublicStudy(userBean.getActiveStudyId(), dataSource);
+             userRole = userBean.getRoleByStudy(publicStudyBean.getId());
+            if (userRole == null || !userRole.isActive())
+                userRole = userBean.getRoleByStudy(publicStudyBean.getParentStudyId());
+
+            role = userRole.getRole();
+
+        StudyBean userRoleStudy = CoreResources.getPublicStudy(userRole.getStudyId(), dataSource);
+        setRoleDescription(role, userRoleStudy);
+
+        if (odmFilter.isCrossForm()) {
+            xml.append(indent + indent + "<UserInfo OpenClinica:UserName=\"" + StringEscapeUtils.escapeXml(userBean.getName()) + "\" OpenClinica:UserRole=\"" + StringEscapeUtils.escapeXml(role.getDescription()) + "\"/>");
+        }
+
         ArrayList<ExportSubjectDataBean> subs = (ArrayList<ExportSubjectDataBean>) this.clinicalData.getExportSubjectData();
         for (ExportSubjectDataBean sub : subs) {
             xml.append(indent + indent + "<SubjectData SubjectKey=\"" + StringEscapeUtils.escapeXml(sub.getSubjectOID()));
@@ -99,173 +143,438 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
 
                 }
             }
+
             xml.append("\">");
             xml.append(nls);
-            //
-            ArrayList<ExportStudyEventDataBean> ses = (ArrayList<ExportStudyEventDataBean>) sub.getExportStudyEventData();
-            for (ExportStudyEventDataBean se : ses) {
-                xml.append(indent + indent + indent + "<StudyEventData StudyEventOID=\"" + StringEscapeUtils.escapeXml(se.getStudyEventOID()));
-                if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                    String location = se.getLocation();
-                    if (location != null && location.length() > 0) {
-                        xml.append("\" OpenClinica:StudyEventLocation=\"" + StringEscapeUtils.escapeXml(location));
-                    }
-                    String startDate = se.getStartDate();
-                    if (startDate != null && startDate.length() > 0) {
-                        xml.append("\" OpenClinica:StartDate=\"" + startDate);
-                    }
-                    String endDate = se.getEndDate();
-                    if (endDate != null && endDate.length() > 0) {
-                        xml.append("\" OpenClinica:EndDate=\"" + endDate);
-                    }
-                    String status = se.getStatus();
-                    if (status != null && status.length() > 0) {
-                        xml.append("\" OpenClinica:Status=\"" + StringEscapeUtils.escapeXml(status));
-                    }
-                    if (se.getAgeAtEvent() != null) {
-                        xml.append("\" OpenClinica:SubjectAgeAtEvent=\"" + se.getAgeAtEvent());
-                    }
-                }
-                xml.append("\"");
-                if (!"-1".equals(se.getStudyEventRepeatKey())) {
-                    xml.append(" StudyEventRepeatKey=\"" + se.getStudyEventRepeatKey() + "\"");
-                }
-                xml.append(">");
+
+            ArrayList<ExportStudyEventDataBean> ses = (ArrayList<ExportStudyEventDataBean>) sub.getExportStudyEventData();// *****************
+
+            EventDefinitionCRFDAO edcdao = new EventDefinitionCRFDAO(dataSource);
+            StudyEventDefinitionDAO<String, ArrayList> seddao = new StudyEventDefinitionDAO(dataSource);
+            CRFDAO crfdao = new CRFDAO(dataSource);
+            StudyBean parentStudyBean = getParentStudy(clinicalData.getStudyOID());
+            StudyBean studyBean = getStudy(clinicalData.getStudyOID());
+            // List<EventDefinitionCRFBean> edcs = edcdao.findAllByStudy(parentStudyBean);
+
+
+            List<EventDefinitionCRFBean> edcs = (List<EventDefinitionCRFBean>) edcdao.findAllStudySiteFiltered(studyBean,permissionTagsStringArray );
+
+            // Subject
+            // ***************** OpenClinica: Subject Links Start**************
+            if (odmFilter.includeLinks() && (role != null && !role.getName().equals("invalid"))) {
+                xml.append(indent + indent + indent + "<OpenClinica:Links>");
                 xml.append(nls);
-                //
-                ArrayList<ExportFormDataBean> forms = se.getExportFormData();
-                for (ExportFormDataBean form : forms) {
-                    xml.append(indent + indent + indent + indent + "<FormData FormOID=\"" + StringEscapeUtils.escapeXml(form.getFormOID()));
-                    if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                        String formLayout = form.getFormLayout();
 
-                        if (!StringUtils.isEmpty(formLayout)) {
-                            xml.append("\" OpenClinica:FormLayoutOID=\"" + StringEscapeUtils.escapeXml(formLayout));
-                        }
-                        String interviewerName = form.getInterviewerName();
-                        if (interviewerName != null && interviewerName.length() > 0) {
-                            xml.append("\" OpenClinica:InterviewerName=\"" + StringEscapeUtils.escapeXml(interviewerName));
-                        }
-                        if (form.getInterviewDate() != null && form.getInterviewDate().length() > 0) {
-                            xml.append("\" OpenClinica:InterviewDate=\"" + form.getInterviewDate());
-                        }
-                        String status = form.getStatus();
-                        if (status != null && status.length() > 0) {
-                            xml.append("\" OpenClinica:Status=\"" + StringEscapeUtils.escapeXml(status));
-                        }
-                    }
-                    xml.append("\">");
-                    xml.append(nls);
-                    //
-                    ArrayList<ImportItemGroupDataBean> igs = form.getItemGroupData();
-                    sortImportItemGroupDataBeanList(igs);
-                    for (ImportItemGroupDataBean ig : igs) {
-                        xml.append(indent + indent + indent + indent + indent + "<ItemGroupData ItemGroupOID=\""
-                                + StringEscapeUtils.escapeXml(ig.getItemGroupOID()) + "\" ");
-                        if (!"-1".equals(ig.getItemGroupRepeatKey())) {
-                            xml.append("ItemGroupRepeatKey=\"" + ig.getItemGroupRepeatKey() + "\" ");
-                        }
-                        if (ig.getItemData().get(0).isDeleted()) {
-                            xml.append("OpenClinica:Removed=\"" + (ig.getItemData().get(0).isDeleted() ? "Yes" : "No") + "\" ");
-                        }
-                        xml.append("TransactionType=\"Insert\">");
-                        xml.append(nls);
-                        ArrayList<ImportItemDataBean> items = ig.getItemData();
-                        sortImportItemDataBeanList(items);
-                        for (ImportItemDataBean item : items) {
-                            boolean printValue = true;
-                            xml.append(indent + indent + indent + indent + indent + indent + "<ItemData ItemOID=\""
-                                    + StringEscapeUtils.escapeXml(item.getItemOID()) + "\" ");
-                            if ("Yes".equals(item.getIsNull())) {
-                                xml.append("IsNull=\"Yes\"");
-                                if (!item.isHasValueWithNull()) {
-                                    printValue = false;
-                                }
-                                if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                                    xml.append(" OpenClinica:ReasonForNull=\"" + StringEscapeUtils.escapeXml(item.getReasonForNull()) + "\" ");
-                                    if (!printValue) {
-                                        xml.append("/>");
-                                        xml.append(nls);
-                                    }
-                                }
-                            }
-                            if (printValue) {
-                                Boolean hasElm = false;
-                                xml.append("Value=\"" + StringEscapeUtils.escapeXml(item.getValue()) + "\"");
+                for (EventDefinitionCRFBean edc : edcs) {
+                    if (role != null && !role.equals(Role.MONITOR) && !edc.getStatus().equals(org.akaza.openclinica.bean.core.Status.AUTO_DELETED)
+                            && !edc.getStatus().equals(org.akaza.openclinica.bean.core.Status.DELETED)) {
+                        StudyEventDefinitionBean sed = (StudyEventDefinitionBean) seddao.findByPK(edc.getStudyEventDefinitionId());
+                        CRFBean crf = (CRFBean) crfdao.findByPK(edc.getCrfId());
 
-                                String muRefOid = item.getMeasurementUnitRef().getElementDefOID();
-                                if (muRefOid != null && muRefOid.length() > 0) {
-                                    if (hasElm) {
-                                    } else {
-                                        xml.append(">");
-                                        xml.append(nls);
-                                        hasElm = true;
-                                    }
-                                    xml.append(indent + indent + indent + indent + indent + indent + indent + "<MeasurementUnitRef MeasurementUnitOID=\""
-                                            + StringEscapeUtils.escapeXml(muRefOid) + "\"/>");
-                                    xml.append(nls);
-                                }
-                                //
-
-                                if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                                    if (item.getAuditLogs() != null && item.getAuditLogs().getAuditLogs().size() > 0) {
-                                        if (hasElm) {
-                                        } else {
-                                            xml.append(">");
-                                            xml.append(nls);
-                                            hasElm = true;
-                                        }
-                                        this.addAuditLogs(item.getAuditLogs(), indent + indent + indent + indent + indent + indent + indent, "item");
-                                    }
-                                    //
-                                    if (item.getDiscrepancyNotes() != null && item.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
-                                        if (hasElm) {
-                                        } else {
-                                            xml.append(">");
-                                            xml.append(nls);
-                                            hasElm = true;
-                                        }
-                                        this.addDiscrepancyNotes(item.getDiscrepancyNotes(), indent + indent + indent + indent + indent + indent + indent);
-                                    }
-                                }
-                                if (hasElm) {
-                                    xml.append(indent + indent + indent + indent + indent + indent + "</ItemData>");
-                                    xml.append(nls);
-                                    hasElm = false;
-                                } else {
+                        if (studyBean.getParentStudyId() == 0 || (studyBean.getParentStudyId() != 0 && !edc.isHideCrf())) {
+                            if (sed.getType().equals(COMMON) && !sub.getStatus().equals("removed")) {
+                                if (sed.isRepeating() || (!sed.isRepeating() && validateAddNewForNonRepeating(sub, crf, sed))) {
+                                    xml.append(indent + indent + indent + indent + "<OpenClinica:Link rel=\"common-add-new\" tag=\""
+                                            + StringEscapeUtils.escapeXml(sed.getOid() + "." + crf.getOid()) + "\"" + " href=\"/pages/api/addAnotherForm?studyoid="
+                                            + StringEscapeUtils.escapeXml(clinicalData.getStudyOID()) + "&amp;studysubjectoid="
+                                            + StringEscapeUtils.escapeXml(sub.getSubjectOID()) + "&amp;studyeventdefinitionoid="
+                                            + StringEscapeUtils.escapeXml(sed.getOid()) + "&amp;crfoid=" + StringEscapeUtils.escapeXml(crf.getOid()) + "\"");
                                     xml.append("/>");
                                     xml.append(nls);
                                 }
                             }
                         }
-                        xml.append(indent + indent + indent + indent + indent + "</ItemGroupData>");
+                    }
+                }
+                xml.append(indent + indent + indent + "</OpenClinica:Links>");
+                xml.append(nls);
+            }
+            // ***************** OpenClinica: Subject Links End **************
+
+            //
+            for (ExportStudyEventDataBean se : ses) {
+
+                if (!odmFilter.isCrossForm() || (odmFilter.isCrossForm() && !se.getStatus().equals(SubjectEventStatus.INVALID.getI18nDescription(getLocale())))) {
+                    // For developers, please do not change order of properties sorted, it will break OpenRosaService
+                    // Manifest Call for odm file
+                    xml.append(indent + indent + indent + "<StudyEventData StudyEventOID=\"" + StringEscapeUtils.escapeXml(se.getStudyEventOID()));
+                    if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
+                        xml.append("\" StudyEventRepeatKey=\"" + se.getStudyEventRepeatKey());
+                        String eventName = se.getEventName();
+                        if (eventName != null && eventName.length() > 0) {
+                            xml.append("\" OpenClinica:EventName=\"" + StringEscapeUtils.escapeXml(eventName));
+                        }
+                        String location = se.getLocation();
+                        if (location != null && location.length() > 0) {
+                            xml.append("\" OpenClinica:StudyEventLocation=\"" + StringEscapeUtils.escapeXml(location));
+                        }
+                        String startDate = se.getStartDate();
+                        if (startDate != null && startDate.length() > 0) {
+                            xml.append("\" OpenClinica:StartDate=\"" + StringEscapeUtils.escapeXml(startDate));
+                        }
+                        String endDate = se.getEndDate();
+                        if (endDate != null && endDate.length() > 0) {
+                            xml.append("\" OpenClinica:EndDate=\"" + StringEscapeUtils.escapeXml(endDate));
+                        }
+                        String status = se.getStatus();
+                        if (status != null && status.length() > 0) {
+                            xml.append("\" OpenClinica:Status=\"" + StringEscapeUtils.escapeXml(status));
+                        }
+                        if (se.getAgeAtEvent() != null) {
+                            xml.append("\" OpenClinica:SubjectAgeAtEvent=\"" + se.getAgeAtEvent());
+                        }
+                    }
+                    xml.append("\">");
+                    xml.append(nls);
+
+                    StudySubject studySubject = sub.getStudySubject();
+                    StudyEvent studyEvent = se.getStudyEvent();
+
+                    // ***************** OpenClinica: Event Links Start **************
+                    if (odmFilter.includeLinks() && (role != null && !role.getName().equals("invalid") && se.getExportFormData().size() != 0)) {
+                        xml.append(indent + indent + indent + indent + "<OpenClinica:Links>");
                         xml.append(nls);
+
+                            if (se.getStudyEventDefinition().getType().equals(COMMON)
+                                    && se.getExportFormData().get(0).getEventDefinitionCrf().getStatusId() != Status.AUTO_DELETED.getCode()
+                                    && se.getExportFormData().get(0).getEventDefinitionCrf().getStatusId() != Status.DELETED.getCode()) {
+
+                                // ***************** OpenClinica:Link REMOVE EVENT **************
+                                if (studyEvent.getStatusId() != Status.DELETED.getCode() && studyEvent.getStatusId() != Status.AUTO_DELETED.getCode()) {
+                                    if (!role.equals(Role.MONITOR) && studySubject.getStatus().equals(Status.AVAILABLE)
+                                            && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                        String removeUrl = "/RemoveStudyEvent?action=confirm&id=" + studyEvent.getStudyEventId() + "&studySubId="
+                                                + studySubject.getStudySubjectId();
+                                        xml.append(indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"remove\" href=\""
+                                                + StringEscapeUtils.escapeXml(removeUrl) + "\"");
+                                        xml.append("/>");
+                                        xml.append(nls);
+
+                                    }
+                                } else {
+                                    // ***************** OpenClinica:Link RESTORE EVENT **************
+                                    // userRole.manageStudy &&
+                                    if (!role.equals(Role.MONITOR)  && studySubject.getStatus().equals(Status.AVAILABLE)
+                                            && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)
+                                            && studyEvent.getStudyEventDefinition().getStatus().equals(Status.AVAILABLE)) {
+                                        String restoreUrl = "/RestoreStudyEvent?action=confirm&id=" + studyEvent.getStudyEventId() + "&studySubId="
+                                                + studySubject.getStudySubjectId();
+                                        xml.append(indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"restore\" href=\""
+                                                + StringEscapeUtils.escapeXml(restoreUrl) + "\"");
+                                        xml.append("/>");
+                                        xml.append(nls);
+                                    }
+                                }
+
+                                // ***************** OpenClinica:Link SIGN EVENT **************
+
+                                if (role.equals(Role.INVESTIGATOR)
+                                        && (studyEvent.getSubjectEventStatusId() == SubjectEventStatus.COMPLETED.getCode()
+                                                || studyEvent.getSubjectEventStatusId() == SubjectEventStatus.SKIPPED.getCode()
+                                                || studyEvent.getSubjectEventStatusId() == SubjectEventStatus.STOPPED.getCode())
+                                        && studySubject.getStatus().equals(Status.AVAILABLE)
+                                        && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                    String signUrl = "/UpdateStudyEvent?action=submit&event_id=" + studyEvent.getStudyEventId() + "&ss_id="
+                                            + studySubject.getStudySubjectId() + "&statusId=8";
+
+                                    xml.append(indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"sign\" href=\""
+                                            + StringEscapeUtils.escapeXml(signUrl) + "\"");
+                                    xml.append("/>");
+                                    xml.append(nls);
+                                }
+
+                                // ***************** OpenClinica:Link LOCK EVENT **************
+
+                                if (studyEvent.getStatusId() != Status.DELETED.getCode() && studyEvent.getStatusId() != Status.AUTO_DELETED.getCode()
+                                        && studySubject.getStatus().equals(Status.AVAILABLE)
+                                        && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                    if ((!studyEvent.getStudyEventDefinition().getType().equals(COMMON) && !role.equals(Role.MONITOR))
+                                            || (studyEvent.getStudyEventDefinition().getType().equals(COMMON)
+                                                    && (role.equals(Role.STUDY_STUDYDIRECTOR) || role.equals(Role.COORDINATOR)))) {
+                                        String lockUrl = "/UpdateStudyEvent?event_id=" + studyEvent.getStudyEventId() + "&ss_id="
+                                                + studySubject.getStudySubjectId();
+
+                                        xml.append(indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"lock\" href=\""
+                                                + StringEscapeUtils.escapeXml(lockUrl) + "\"");
+                                        xml.append("/>");
+                                        xml.append(nls);
+
+                                    }
+                                }
+                            }
+
+                        xml.append(indent + indent + indent + indent + "</OpenClinica:Links>");
+                        xml.append(nls);
+                    }
+                    // ***************** OpenClinica: Event Links End **************
+
+                    //
+                    ArrayList<ExportFormDataBean> forms = se.getExportFormData();
+                    for (ExportFormDataBean form : forms) {
+                        if (!odmFilter.isCrossForm() || (odmFilter.isCrossForm() && !form.getStatus().equals(EventCRFStatus.INVALID.getI18nDescription(getLocale())))) {
+
+                            xml.append(indent + indent + indent + indent + "<FormData FormOID=\"" + StringEscapeUtils.escapeXml(form.getFormOID()));
+                            if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
+                                String formName = form.getFormName();
+                                if (!StringUtils.isEmpty(formName)) {
+                                    xml.append("\" OpenClinica:FormName=\"" + StringEscapeUtils.escapeXml(formName));
+                                }
+                                String formLayout = form.getFormLayoutName();
+                                if (!StringUtils.isEmpty(formLayout)) {
+                                    xml.append("\" OpenClinica:FormLayoutOID=\"" + StringEscapeUtils.escapeXml(formLayout));
+                                }
+                                String interviewerName = form.getInterviewerName();
+                                if (interviewerName != null && interviewerName.length() > 0) {
+                                    xml.append("\" OpenClinica:InterviewerName=\"" + StringEscapeUtils.escapeXml(interviewerName));
+                                }
+                                if (form.getInterviewDate() != null && form.getInterviewDate().length() > 0) {
+                                    xml.append("\" OpenClinica:InterviewDate=\"" + form.getInterviewDate());
+                                }
+                                Date createdDate = form.getCreatedDate();
+                                if (createdDate != null) {
+                                    xml.append("\" OpenClinica:CreatedDate=\""
+                                            + StringEscapeUtils.escapeXml(new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(createdDate)));
+                                }
+                                String createdBy = form.getCreatedBy();
+                                if (createdBy != null && createdBy.length() > 0) {
+                                    xml.append("\" OpenClinica:CreatedBy=\"" + StringEscapeUtils.escapeXml(createdBy));
+                                }
+                                Date updatedDate = form.getUpdatedDate();
+                                if (updatedDate != null) {
+                                    xml.append("\" OpenClinica:UpdatedDate=\""
+                                            + StringEscapeUtils.escapeXml(new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(updatedDate)));
+                                }
+                                String updatedBy = form.getUpdatedBy();
+                                if (updatedBy != null && updatedBy.length() > 0) {
+                                    xml.append("\" OpenClinica:UpdatedBy=\"" + StringEscapeUtils.escapeXml(updatedBy));
+                                }
+                                String status = form.getStatus();
+                                if (status != null && status.length() > 0) {
+                                    xml.append("\" OpenClinica:Status=\"" + StringEscapeUtils.escapeXml(status));
+                                }
+                            }
+                            xml.append("\">");
+                            xml.append(nls);
+
+                            EventCrf eventCrf = form.getEventCrf();
+                            FormLayout formLayout = form.getFormLayout();
+                            EventDefinitionCrf eventDefinitionCrf = form.getEventDefinitionCrf();
+
+                            // ***************** OpenClinica: Form Links Start **************
+                            if (odmFilter.includeLinks() && (role != null && !role.getName().equals("invalid"))) {
+
+                                xml.append(indent + indent + indent + indent + indent + "<OpenClinica:Links>");
+                                xml.append(nls);
+
+                                String formUrl = "/EnketoFormServlet?formLayoutId=" + formLayout.getFormLayoutId() + "&studyEventId="
+                                        + studyEvent.getStudyEventId() + "&eventCrfId=" + eventCrf.getEventCrfId() + "&originatingPage=ViewStudySubject%3Fid%3D"
+                                        + studySubject.getStudySubjectId();
+
+                                // ***************** OpenClinica:Link ENKETO VIEW MODE **************
+                                // No Restrictions
+                                xml.append(indent + indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"view\" href=\""
+                                        + StringEscapeUtils.escapeXml(formUrl + "&mode=view") + "\"");
+                                xml.append("/>");
+                                xml.append(nls);
+
+                                // ***************** OpenClinica:Link ENKETO EDIT MODE **************
+
+                                if (!(form.getEventDefinitionCrf().getStatusId() == Status.DELETED.getCode())
+                                        && !(form.getEventDefinitionCrf().getStatusId() == Status.AUTO_DELETED.getCode())) {
+
+                                    if (!formLayout.getStatus().equals(Status.LOCKED)
+                                            && !role.equals(Role.MONITOR) && eventCrf.getStatusId() != Status.DELETED.getCode()
+                                            && eventCrf.getStatusId() != Status.AUTO_DELETED.getCode() && eventCrf.getStatusId() != Status.LOCKED.getCode()
+                                            && studyEvent.getSubjectEventStatusId() != SubjectEventStatus.LOCKED.getCode()
+                                            && studyEvent.getSubjectEventStatusId() != SubjectEventStatus.SKIPPED.getCode()
+                                            && studyEvent.getStatusId() != Status.DELETED.getCode() && studyEvent.getStatusId() != Status.AUTO_DELETED.getCode()
+                                            && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                        xml.append(indent + indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"edit\" href=\""
+                                                + StringEscapeUtils.escapeXml(formUrl + "&mode=edit") + "\"");
+                                        xml.append("/>");
+                                        xml.append(nls);
+                                    }
+                                    // ***************** OpenClinica:Link REMOVE EVENT CRF **************
+                                    if (!studyEvent.getStudyEventDefinition().getType().equals(COMMON)) {
+                                        if (eventCrf.getStatusId() != Status.DELETED.getCode() && eventCrf.getStatusId() != Status.AUTO_DELETED.getCode()) {
+                                            if ((!role.equals(Role.MONITOR))
+                                                    && studySubject.getStatus().equals(Status.AVAILABLE)
+                                                    && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                                String removeUrl = "/RemoveEventCRF?action=confirm&eventCrfId=" + eventCrf.getEventCrfId() + "&studySubId="
+                                                        + studySubject.getStudySubjectId();
+                                                xml.append(indent + indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"remove\" href=\""
+                                                        + StringEscapeUtils.escapeXml(removeUrl) + "\"");
+                                                xml.append("/>");
+                                                xml.append(nls);
+
+                                            }
+                                        } else {
+                                            // ***************** OpenClinica:Link RESTORE EVENT CRF **************
+                                            // userRole.manageStudy &&
+                                            if ((!role.equals(Role.MONITOR) )
+                                                    && studyEvent.getStatusId() != Status.AUTO_DELETED.getCode()
+                                                    && eventCrf.getStatusId() != Status.AUTO_DELETED.getCode()
+                                                    && studySubject.getStatus().equals(Status.AVAILABLE)
+                                                    && studyEvent.getStatusId() == Status.AVAILABLE.getCode()
+                                                    && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)) {
+                                                String restoreUrl = "/RestoreEventCRF?action=confirm&id=" + eventCrf.getEventCrfId() + "&studySubId="
+                                                        + studySubject.getStudySubjectId();
+                                                xml.append(indent + indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"restore\" href=\""
+                                                        + StringEscapeUtils.escapeXml(restoreUrl) + "\"");
+                                                xml.append("/>");
+                                                xml.append(nls);
+                                            }
+                                        }
+                                    }
+                                    // ***************** OpenClinica:Link REASSIGN EVENT CRF **************
+
+                                    // (userRole.director || userRole.coordinator) &&
+                                    if ((role.equals(Role.STUDYDIRECTOR) || role.equals(Role.COORDINATOR))
+                                            && studyBean.getStatus().equals(org.akaza.openclinica.bean.core.Status.AVAILABLE)
+                                            && !(studyEvent.getSubjectEventStatusId() == SubjectEventStatus.LOCKED.getCode()
+                                                    || studyEvent.getSubjectEventStatusId() == SubjectEventStatus.SKIPPED.getCode())) {
+
+                                        String reassignUrl = "/pages/managestudy/chooseCRFVersion?crfId=" + formLayout.getCrf().getCrfId() + "&crfName="
+                                                + formLayout.getCrf().getName() + "&formLayoutId=" + formLayout.getFormLayoutId() + "&formLayoutName="
+                                                + form.getFormLayoutName() + "&studySubjectLabel=" + studySubject.getLabel() + "&studySubjectId="
+                                                + studySubject.getStudySubjectId() + "&eventCrfId=" + eventCrf.getEventCrfId() + "&eventDefinitionCRFId="
+                                                + eventDefinitionCrf.getEventDefinitionCrfId() + "&originatingPage=ViewStudySubject%3Fid%3D"
+                                                + studySubject.getStudySubjectId();
+
+                                        xml.append(indent + indent + indent + indent + indent + indent + "<OpenClinica:Link rel=\"reassign\" href=\""
+                                                + StringEscapeUtils.escapeXml(reassignUrl) + "\"");
+                                        xml.append("/>");
+                                        xml.append(nls);
+
+                                    }
+                                }
+                                xml.append(indent + indent + indent + indent + indent + "</OpenClinica:Links>");
+                                xml.append(nls);
+                            }
+                            // ***************** OpenClinica: Form Links End **************
+
+                            //
+                            ArrayList<ImportItemGroupDataBean> igs = form.getItemGroupData();
+                            sortImportItemGroupDataBeanList(igs);
+                            for (ImportItemGroupDataBean ig : igs) {
+                                xml.append(indent + indent + indent + indent + indent + "<ItemGroupData ItemGroupOID=\""
+                                        + StringEscapeUtils.escapeXml(ig.getItemGroupOID()) + "\" ");
+                                if (!"-1".equals(ig.getItemGroupRepeatKey())) {
+                                    xml.append("ItemGroupRepeatKey=\"" + ig.getItemGroupRepeatKey() + "\" ");
+                                }
+                                String itemGroupName = ig.getItemGroupName();
+                                if (!StringUtils.isEmpty(itemGroupName)) {
+                                    xml.append("OpenClinica:ItemGroupName=\"" + itemGroupName + "\" ");
+                                }
+                                if (ig.getItemData().get(0).isDeleted()) {
+                                    xml.append("OpenClinica:Removed=\"" + (ig.getItemData().get(0).isDeleted() ? "Yes" : "No") + "\" ");
+                                }
+                                xml.append("TransactionType=\"Insert\">");
+                                xml.append(nls);
+                                ArrayList<ImportItemDataBean> items = ig.getItemData();
+                                sortImportItemDataBeanList(items);
+                                for (ImportItemDataBean item : items) {
+                                    boolean printValue = true;
+                                    xml.append(indent + indent + indent + indent + indent + indent + "<ItemData ItemOID=\""
+                                            + StringEscapeUtils.escapeXml(item.getItemOID()) + "\" ");
+                                    String itemName = item.getItemName();
+                                    if (!StringUtils.isEmpty(itemName)) {
+                                        xml.append(" OpenClinica:ItemName=\"" + StringEscapeUtils.escapeXml(itemName) + "\" ");
+                                    }
+                                    if ("Yes".equals(item.getIsNull())) {
+                                        xml.append("IsNull=\"Yes\"");
+                                        if (!item.isHasValueWithNull()) {
+                                            printValue = false;
+                                        }
+                                        if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
+                                            xml.append(" OpenClinica:ReasonForNull=\"" + StringEscapeUtils.escapeXml(item.getReasonForNull()) + "\" ");
+                                            if (!printValue) {
+                                                xml.append("/>");
+                                                xml.append(nls);
+                                            }
+                                        }
+                                    }
+                                    if (printValue) {
+                                        Boolean hasElm = false;
+                                        xml.append("Value=\"" + StringEscapeUtils.escapeXml(item.getValue()) + "\"");
+
+                                        String muRefOid = item.getMeasurementUnitRef().getElementDefOID();
+                                        if (muRefOid != null && muRefOid.length() > 0) {
+                                            if (hasElm) {
+                                            } else {
+                                                xml.append(">");
+                                                xml.append(nls);
+                                                hasElm = true;
+                                            }
+                                            xml.append(indent + indent + indent + indent + indent + indent + indent
+                                                    + "<MeasurementUnitRef MeasurementUnitOID=\"" + StringEscapeUtils.escapeXml(muRefOid) + "\"/>");
+                                            xml.append(nls);
+                                        }
+                                        //
+
+                                        if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
+                                            if (item.getAuditLogs() != null && item.getAuditLogs().getAuditLogs().size() > 0) {
+                                                if (hasElm) {
+                                                } else {
+                                                    xml.append(">");
+                                                    xml.append(nls);
+                                                    hasElm = true;
+                                                }
+                                                this.addAuditLogs(item.getAuditLogs(), indent + indent + indent + indent + indent + indent + indent, "item");
+                                            }
+                                            //
+                                            if (item.getDiscrepancyNotes() != null && item.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
+                                                if (hasElm) {
+                                                } else {
+                                                    xml.append(">");
+                                                    xml.append(nls);
+                                                    hasElm = true;
+                                                }
+                                                this.addDiscrepancyNotes(item.getDiscrepancyNotes(),
+                                                        indent + indent + indent + indent + indent + indent + indent);
+                                            }
+                                        }
+                                        if (hasElm) {
+                                            xml.append(indent + indent + indent + indent + indent + indent + "</ItemData>");
+                                            xml.append(nls);
+                                            hasElm = false;
+                                        } else {
+                                            xml.append("/>");
+                                            xml.append(nls);
+                                        }
+                                    }
+                                }
+                                xml.append(indent + indent + indent + indent + indent + "</ItemGroupData>");
+                                xml.append(nls);
+                            }
+                            //
+                            if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
+                                if (form.getAuditLogs() != null && form.getAuditLogs().getAuditLogs().size() > 0) {
+                                    this.addAuditLogs(form.getAuditLogs(), indent + indent + indent + indent + indent, "form");
+                                }
+                                //
+                                if (form.getDiscrepancyNotes() != null && form.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
+                                    this.addDiscrepancyNotes(form.getDiscrepancyNotes(), indent + indent + indent + indent + indent);
+                                }
+                            }
+                            xml.append(indent + indent + indent + indent + "</FormData>");
+                            xml.append(nls);
+                        }
                     }
                     //
                     if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                        if (form.getAuditLogs() != null && form.getAuditLogs().getAuditLogs().size() > 0) {
-                            this.addAuditLogs(form.getAuditLogs(), indent + indent + indent + indent + indent, "form");
+                        if (se.getAuditLogs() != null && se.getAuditLogs().getAuditLogs().size() > 0) {
+                            this.addAuditLogs(se.getAuditLogs(), indent + indent + indent + indent, "se");
                         }
                         //
-                        if (form.getDiscrepancyNotes() != null && form.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
-                            this.addDiscrepancyNotes(form.getDiscrepancyNotes(), indent + indent + indent + indent + indent);
+                        if (se.getDiscrepancyNotes() != null && se.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
+                            this.addDiscrepancyNotes(se.getDiscrepancyNotes(), indent + indent + indent + indent);
                         }
                     }
-                    xml.append(indent + indent + indent + indent + "</FormData>");
+                    xml.append(indent + indent + indent + "</StudyEventData>");
                     xml.append(nls);
                 }
-                //
-                if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
-                    if (se.getAuditLogs() != null && se.getAuditLogs().getAuditLogs().size() > 0) {
-                        this.addAuditLogs(se.getAuditLogs(), indent + indent + indent + indent, "se");
-                    }
-                    //
-                    if (se.getDiscrepancyNotes() != null && se.getDiscrepancyNotes().getDiscrepancyNotes().size() > 0) {
-                        this.addDiscrepancyNotes(se.getDiscrepancyNotes(), indent + indent + indent + indent);
-                    }
-                }
-                xml.append(indent + indent + indent + "</StudyEventData>");
-                xml.append(nls);
+
             }
             if ("oc1.2".equalsIgnoreCase(ODMVersion) || "oc1.3".equalsIgnoreCase(ODMVersion)) {
                 ArrayList<SubjectGroupDataBean> sgddata = (ArrayList<SubjectGroupDataBean>) sub.getSubjectGroupData();
@@ -296,6 +605,7 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
             xml.append(indent + indent + "</SubjectData>");
             xml.append(nls);
         }
+
         if (footer) {
             xml.append(indent + "</ClinicalData>");
             xml.append(nls);
@@ -346,6 +656,15 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
             String o = audit.getOldValue();
             String n = audit.getNewValue();
             String vt = audit.getValueType();
+            String details = (audit.getDetails() != null) ? audit.getDetails() : "";
+
+            if (getAuditLogEventTypes().contains(audit.getAuditLogEventTypeId()) && o.length() > 0) {
+                o = StringEscapeUtils.escapeXml("Masked");
+            }
+            if (getAuditLogEventTypes().contains(audit.getAuditLogEventTypeId()) && n.length() > 0) {
+                n = StringEscapeUtils.escapeXml("Masked");
+            }
+
 
             Boolean p = i.length() > 0 || u.length() > 0 || d != null || t.length() > 0 || r.length() > 0 || o.length() > 0 || n.length() > 0 ? true : false;
             if (p) {
@@ -384,6 +703,10 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
                 if (vt.length() > 0) {
                     xml.append(nls);
                     xml.append(currentIndent + "                      ValueType=\"" + StringEscapeUtils.escapeXml(vt) + "\"");
+                }
+                if (details.length() > 0) {
+                    xml.append(nls);
+                    xml.append(currentIndent + "                      Details=\"" + StringEscapeUtils.escapeXml(details) + "\"");
                 }
                 xml.append("/>");
                 xml.append(nls);
@@ -436,7 +759,7 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
         if (dn.getDateUpdated() != null) {
             Date d = dn.getDateUpdated();
             if (d.toString().length() > 0) {
-                xml.append("DateUpdated=\"" + new SimpleDateFormat("yyyy-MM-dd").format(d) + "\" ");
+                xml.append("DateUpdated=\"" + new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(d) + "\" ");
             }
         }
         if (dn.getEntityName() != null) {
@@ -445,6 +768,14 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
                 xml.append("EntityName=\"" + s + "\" ");
             }
         }
+
+        if (dn.getThreadNumber() != null && dn.getThreadNumber()!=0) {
+            String s = String.valueOf(dn.getThreadNumber());
+            if (s.length() > 0) {
+                xml.append("QueryID=\"" + s + "\" ");
+            }
+        }
+
         int n = dn.getNumberOfChildNotes();
         if (n > 0) {
             xml.append("NumberOfChildNotes=\"" + dn.getNumberOfChildNotes() + "\"");
@@ -470,7 +801,7 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
                 if (cn.getDateCreated() != null) {
                     Date d = cn.getDateCreated();
                     if (d.toString().length() > 0) {
-                        xml.append("DateCreated=\"" + new SimpleDateFormat("yyyy-MM-dd").format(d) + "\" ");
+                        xml.append("DateCreated=\"" + new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(d) + "\" ");
                     }
                 }
                 if (cn.getOwnerUserName() != "") {
@@ -576,5 +907,133 @@ public class ClinicalDataReportBean extends OdmXmlReportBean {
             }
         });
     }
+
+    public Locale getLocale() {
+        return locale;
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see org.akaza.openclinica.bean.extract.odm.OdmXmlReportBean#createOdmXml(boolean)
+     */
+    @Override
+    public void createOdmXml(boolean isDataset) {
+        // TODO Auto-generated method stub
+
+    }
+
+    private StudyBean getParentStudy(String studyOid) {
+        StudyBean study = getStudy(studyOid);
+        if (study.getParentStudyId() == 0) {
+            return study;
+        } else {
+            StudyBean parentStudy = (StudyBean) sdao.findByPK(study.getParentStudyId());
+            return parentStudy;
+        }
+    }
+
+    private StudyBean getStudy(String oid) {
+        sdao = new StudyDAO(dataSource);
+        StudyBean studyBean = (StudyBean) sdao.findByOid(oid);
+        return studyBean;
+    }
+
+    private boolean validateAddNewForNonRepeating(ExportSubjectDataBean sub, CRFBean crf, StudyEventDefinitionBean sed) {
+        List<ExportStudyEventDataBean> studyEventDataBeans = sub.getExportStudyEventData();
+
+        EventCRFDAO edao = new EventCRFDAO<>(dataSource);
+        StudyEventDAO sedao = new StudyEventDAO(dataSource);
+
+        for (ExportStudyEventDataBean studyEventDataBean : studyEventDataBeans) {
+            if (studyEventDataBean.getStudyEventDefinition().getStudyEventDefinitionId() == sed.getId()) {
+                StudyEventBean studyEventBean = (StudyEventBean) sedao.findByPK(studyEventDataBean.getStudyEvent().getStudyEventId());
+                List<EventCrf> eventCrfs = (List<EventCrf>) edao.findAllByStudyEventAndCrfOrCrfVersionOid(studyEventBean, crf.getOid());
+                if (eventCrfs.size() != 0) {
+                    logger.error(
+                            "EventCrf with StudyEventDefinition Oid {},Crf Oid {} and StudySubjectOid {} already exist in the System and it is a non repeating event.",
+                            studyEventDataBean.getStudyEventDefinition().getOc_oid(), crf.getOid(), sub.getSubjectOID());
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+
+    private void setRoleDescription(Role role , StudyBean userRoleStudy){
+        if (userRoleStudy.getParentStudyId() > 0) {
+            /*
+             * The Role decription will be set depending on whether the user logged in at study lever or site level.
+             * issue-2422
+             */
+
+                switch (role.getId()) {
+                    case 2:
+                        role.setDescription("site_Study_Coordinator");
+                        break;
+                    case 3:
+                        role.setDescription("site_Study_Director");
+                        break;
+                    case 4:
+                        role.setDescription("site_investigator");
+                        break;
+                    case 5:
+                        role.setDescription("site_Data_Entry_Person");
+                        break;
+                    case 6:
+                        role.setDescription("site_monitor");
+                        break;
+                    case 7:
+                        role.setDescription("site_Data_Entry_Person2");
+                        break;
+                    case 8:
+                        role.setDescription("site_Data_Entry_Participant");
+                        break;
+                    default:
+                        // logger.info("No role matched when setting role description");
+                }
+
+        } else {
+            /*
+             * If the current study is a site, we will change the role description. issue-2422
+             */
+
+                switch (role.getId()) {
+                    case 2:
+                        role.setDescription("Study_Coordinator");
+                        break;
+                    case 3:
+                        role.setDescription("Study_Director");
+                        break;
+                    case 4:
+                        role.setDescription("Investigator");
+                        break;
+                    case 5:
+                        role.setDescription("Data_Entry_Person");
+                        break;
+                    case 6:
+                        role.setDescription("Monitor");
+                        break;
+                    default:
+                        // logger.info("No role matched when setting role description");
+                }
+            }
+        }
+
+
+    private List<Integer> getAuditLogEventTypes() {
+        List<Integer> auditLogEventTypes = new ArrayList<>();
+        auditLogEventTypes.add(43);
+        auditLogEventTypes.add(44);
+        auditLogEventTypes.add(46);
+        auditLogEventTypes.add(47);
+        auditLogEventTypes.add(49);
+        auditLogEventTypes.add(50);
+        auditLogEventTypes.add(53);
+        auditLogEventTypes.add(56);
+        return auditLogEventTypes;
+    }
+
 
 }

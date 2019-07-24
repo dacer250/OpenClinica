@@ -52,6 +52,7 @@ import org.akaza.openclinica.domain.rule.RulesPostImportContainer;
 import org.akaza.openclinica.exception.OpenClinicaSystemException;
 import org.akaza.openclinica.logic.odmExport.MetadataUnit;
 import org.apache.commons.lang.StringEscapeUtils;
+import org.apache.commons.lang.StringUtils;
 import org.castor.xml.XMLConfiguration;
 import org.exolab.castor.mapping.Mapping;
 import org.exolab.castor.mapping.MappingException;
@@ -94,17 +95,6 @@ public class MetaDataReportBean extends OdmXmlReportBean {
 
     private static String nls = System.getProperty("line.separator");
 
-    /**
-     * has not been implemented yet
-     */
-    @Override
-    public void createOdmXml(boolean isDataset) {
-        // this.addHeading();
-        // this.addRootStartLine();
-        // addNodeStudy();
-        // this.addRootEndLine();
-    }
-
     public void createChunkedOdmXml(boolean isDataset) {
         this.addHeading();
         this.addRootStartLine();
@@ -146,6 +136,9 @@ public class MetaDataReportBean extends OdmXmlReportBean {
             marshaller.marshal(rpic);
             String result = writer.toString();
             String newResult = result.replace("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "");
+            // The result of this is being double escaped. Somewhere the Castor library is escaping the XML specific
+            // characters when they have already been escaped.
+            newResult = StringEscapeUtils.unescapeXml(newResult);
             return newResult;
 
         } catch (FileNotFoundException ex) {
@@ -166,7 +159,7 @@ public class MetaDataReportBean extends OdmXmlReportBean {
     public void addNodeRulesData(MetaDataVersionBean a) {
 
         RulesPostImportContainer rpic = new RulesPostImportContainer();
-        rpic.populate(a.getRuleSetRules());
+        rpic.populate(a.getRuleSetRules(), true);
 
         if (rpic.getRuleSets() != null && rpic.getRuleSets().size() > 0) {
             StringBuffer xml = this.getXmlOutput();
@@ -320,17 +313,18 @@ public class MetaDataReportBean extends OdmXmlReportBean {
         ArrayList<StudyEventDefBean> seds = (ArrayList<StudyEventDefBean>) odmstudy.getMetaDataVersion().getStudyEventDefs();
         for (StudyEventDefBean sed : seds) {
             xml.append(currentIndent + "<StudyEventDef OID=\"" + StringEscapeUtils.escapeXml(sed.getOid()) + "\"  Name=\""
-                    + StringEscapeUtils.escapeXml(sed.getName()) + "\" Repeating=\"" + sed.getRepeating() + "\" Type=\"" + sed.getType() + "\">");
+                    + StringEscapeUtils.escapeXml(sed.getName()) + "\" Repeating=\"" + sed.getRepeating() + "\" Type=\"" + sed.getType()
+                    + "\" OpenClinica:EventType=\"" + sed.getType() + "\" OpenClinica:Status=\"" + sed.getStatus() + "\">");
             xml.append(nls);
             ArrayList<ElementRefBean> formRefs = (ArrayList<ElementRefBean>) sed.getFormRefs();
             for (ElementRefBean formRef : formRefs) {
                 xml.append(currentIndent + indent + "<FormRef FormOID=\"" + StringEscapeUtils.escapeXml(formRef.getElementDefOID()) + "\" Mandatory=\""
-                        + formRef.getMandatory() + "\">");
+                        + formRef.getMandatory() + "\" OpenClinica:Status=\"" + formRef.getStatus() + "\">");
                 xml.append(nls);
                 ConfigurationParameters conf = formRef.getConfigurationParameters();
                 if (conf != null) {
                     xml.append(currentIndent + indent + indent + "<OpenClinica:ConfigurationParameters HideCRF=\"" + (conf.isHiddenCrf() ? "Yes" : "No")
-                            + "\" ParticipantForm=\"" + (conf.isParticipantForm() ? "Yes" : "No") + "\" AllowAnonymousSubmission=\""
+                            + "\" ParticipateForm=\"" + (conf.isParticipantForm() ? "Yes" : "No") + "\" AllowAnonymousSubmission=\""
                             + (conf.isAllowAnynymousSubmission() ? "Yes" : "No") + "\" SubmissionUrl=\"" + conf.getSubmissionUrl() + "\" Offline=\""
                             + (conf.isOffline() ? "Yes" : "No") + "\"/>");
                     xml.append(nls);
@@ -927,6 +921,10 @@ public class MetaDataReportBean extends OdmXmlReportBean {
                     + spc.getGenderRequired() + "\"/>" + nls);
             xml.append(currentIndent + indent + indent + "<OpenClinica:StudyParameterListRef StudyParameterListID=\"SPL_subjectIdGeneration\"" + " Value=\""
                     + spc.getSubjectIdGeneration() + "\"/>" + nls);
+          if(!StringUtils.isEmpty(spc.getParticipantIdTemplate())) {
+              xml.append(currentIndent + indent + indent + "<OpenClinica:StudyParameterListRef StudyParameterListID=\"SPL_subjectIdTemplate\"" + " Value=\""
+                      +  StringEscapeUtils.escapeXml(spc.getParticipantIdTemplate())  + "\"/>" + nls);
+          }
             xml.append(currentIndent + indent + indent + "<OpenClinica:StudyParameterListRef StudyParameterListID=\"SPL_interviewerNameRequired\"" + " Value=\""
                     + spc.getInterviewerNameRequired() + "\"/>" + nls);
             xml.append(currentIndent + indent + indent + "<OpenClinica:StudyParameterListRef StudyParameterListID=\"SPL_interviewerNameDefault\"" + " Value=\""
@@ -1272,18 +1270,15 @@ public class MetaDataReportBean extends OdmXmlReportBean {
         xml.append(currentIndent + indent + "</OpenClinica:StudyParameterListItem>" + nls);
         xml.append(currentIndent + "</OpenClinica:StudyParameterList>" + nls);
         //
-        xml.append(currentIndent + "<OpenClinica:StudyParameterList ID=\"" + "SPL_subjectIdGeneration" + "\" Name=\"" + "How To Generate Study SubjectID"
+        xml.append(currentIndent + "<OpenClinica:StudyParameterList ID=\"" + "SPL_subjectIdGeneration" + "\" Name=\"" + "How To Generate ParticipantID"
                 + "\">" + nls);
+
         xml.append(currentIndent + indent + "<OpenClinica:StudyParameterListItem CodedParameterValue=\"" + "manual" + "\">" + nls);
         xml.append(currentIndent + indent + indent + "<Decode>" + nls);
         xml.append(currentIndent + indent + indent + indent + "<TranslatedText>" + "Manual Entry" + "</TranslatedText>" + nls);
         xml.append(currentIndent + indent + indent + "</Decode>" + nls);
         xml.append(currentIndent + indent + "</OpenClinica:StudyParameterListItem>" + nls);
-        xml.append(currentIndent + indent + "<OpenClinica:StudyParameterListItem CodedParameterValue=\"" + "auto editable" + "\">" + nls);
-        xml.append(currentIndent + indent + indent + "<Decode>" + nls);
-        xml.append(currentIndent + indent + indent + indent + "<TranslatedText>" + "Auto-generated and Editable" + "</TranslatedText>" + nls);
-        xml.append(currentIndent + indent + indent + "</Decode>" + nls);
-        xml.append(currentIndent + indent + "</OpenClinica:StudyParameterListItem>" + nls);
+
         xml.append(currentIndent + indent + "<OpenClinica:StudyParameterListItem CodedParameterValue=\"" + "auto non-editable" + "\">" + nls);
         xml.append(currentIndent + indent + indent + "<Decode>" + nls);
         xml.append(currentIndent + indent + indent + indent + "<TranslatedText>" + "Auto-generated and Non-editable" + "</TranslatedText>" + nls);
@@ -1476,4 +1471,16 @@ public class MetaDataReportBean extends OdmXmlReportBean {
         temp = "<MeasurementUnitRef MeasurementUnitOID=\"" + StringEscapeUtils.escapeXml(muRefOid) + "\"/>";
         return temp;
     }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.akaza.openclinica.bean.extract.odm.OdmXmlReportBean#createOdmXml(boolean)
+     */
+    @Override
+    public void createOdmXml(boolean isDataset) {
+        // TODO Auto-generated method stub
+
+    }
+
 }

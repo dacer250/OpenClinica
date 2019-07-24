@@ -25,10 +25,7 @@ import org.akaza.openclinica.bean.core.UserType;
 import org.akaza.openclinica.bean.login.StudyUserRoleBean;
 import org.akaza.openclinica.bean.login.UserAccountBean;
 import org.akaza.openclinica.bean.managestudy.StudyBean;
-import org.akaza.openclinica.dao.core.AuditableEntityDAO;
-import org.akaza.openclinica.dao.core.DAODigester;
-import org.akaza.openclinica.dao.core.SQLFactory;
-import org.akaza.openclinica.dao.core.TypeNames;
+import org.akaza.openclinica.dao.core.*;
 import org.akaza.openclinica.dao.managestudy.StudyDAO;
 import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
 import org.apache.commons.lang.StringUtils;
@@ -140,6 +137,8 @@ public class UserAccountDAO extends AuditableEntityDAO {
 
     @Override
     public EntityBean update(EntityBean eb) {
+        String requestSchema = CoreResources.getRequestSchema();
+        CoreResources.setRequestSchema("public");
         UserAccountBean uab = (UserAccountBean) eb;
         HashMap variables = new HashMap();
         HashMap nullVars = new HashMap();
@@ -238,6 +237,8 @@ public class UserAccountDAO extends AuditableEntityDAO {
             // "+variables.toString());
         }
 
+        if (StringUtils.isNotEmpty(requestSchema))
+            CoreResources.setRequestSchema(requestSchema);
         return eb;
     }
 
@@ -296,6 +297,9 @@ public class UserAccountDAO extends AuditableEntityDAO {
 
     @Override
     public EntityBean create(EntityBean eb) {
+        String requestSchema = CoreResources.getRequestSchema();
+        CoreResources.setRequestSchema("public");
+
         UserAccountBean uab = (UserAccountBean) eb;
         HashMap variables = new HashMap();
         int id = getNextPK();
@@ -350,6 +354,8 @@ public class UserAccountDAO extends AuditableEntityDAO {
             uab.setId(id);
         }
 
+        if (StringUtils.isNotEmpty(requestSchema))
+            CoreResources.setRequestSchema(requestSchema);
         return uab;
     }
 
@@ -409,7 +415,7 @@ public class UserAccountDAO extends AuditableEntityDAO {
         Integer ownerId = (Integer) hm.get("owner_id");
         Integer updateId = (Integer) hm.get("update_id");
 
-        surb.setName((String) hm.get("user_name"));
+        surb.setName((String) hm.get("role_name"));
         surb.setUserName((String) hm.get("user_name"));
         surb.setRoleName((String) hm.get("role_name"));
         surb.setCreatedDate(dateCreated);
@@ -691,6 +697,9 @@ public class UserAccountDAO extends AuditableEntityDAO {
         this.setTypeExpected(2, TypeNames.INT);
         this.setTypeExpected(3, TypeNames.STRING);
         this.setTypeExpected(4, TypeNames.STRING);
+        this.setTypeExpected(5, TypeNames.STRING);
+        this.setTypeExpected(6, TypeNames.STRING);
+
         HashMap allStudyUserRoleBeans = new HashMap();
 
         HashMap variables = new HashMap();
@@ -707,6 +716,9 @@ public class UserAccountDAO extends AuditableEntityDAO {
             StudyUserRoleBean sur = new StudyUserRoleBean();
             sur.setRoleName(roleName);
             sur.setStudyId(studyId.intValue());
+            sur.setStudyEnvUuid((String) hm.get("study_env_uuid"));
+            sur.setSiteUuid((String) hm.get("study_env_site_uuid"));
+
             sur.setStudyName(studyName);
             sur.setEnvType(envType);
             allStudyUserRoleBeans.put(studyId, sur);
@@ -897,7 +909,34 @@ public class UserAccountDAO extends AuditableEntityDAO {
 
         return answer;
     }
+    
+    public Collection findAllRolesByUserNameAndStudyOid(String userName,String studyOid) {
+        this.setRoleTypesExpected();
+        ArrayList answer = new ArrayList();
 
+        HashMap variables = new HashMap();
+        variables.put(new Integer(1), userName);
+        variables.put(new Integer(2), studyOid);
+        ArrayList alist = this.select(digester.getQuery("findAllRolesByUserNameAndStudyOid"), variables);
+        Iterator it = alist.iterator();
+        while (it.hasNext()) {
+            StudyUserRoleBean surb = this.getRoleFromHashMap((HashMap) it.next());
+            answer.add(surb);
+        }
+
+        return answer;
+    }
+
+    
+    public StudyUserRoleBean findTheRoleByUserNameAndStudyOid(String userName,String studyOid) {        
+        ArrayList roles = (ArrayList) this.findAllRolesByUserNameAndStudyOid(userName, studyOid);
+        if(roles.size() > 0) {
+        	return (StudyUserRoleBean) roles.get(0);
+        }else {
+        	return null;
+        }
+
+      }
     /**
      * Finds all user and roles in a study
      *

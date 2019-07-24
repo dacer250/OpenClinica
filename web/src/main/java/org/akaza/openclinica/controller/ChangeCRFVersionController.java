@@ -1,37 +1,21 @@
 package org.akaza.openclinica.controller;
 
-import java.sql.Connection;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.ResourceBundle;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.sql.DataSource;
-
 import org.akaza.openclinica.bean.admin.CRFBean;
 import org.akaza.openclinica.bean.core.Role;
 import org.akaza.openclinica.bean.core.Status;
 import org.akaza.openclinica.bean.core.SubjectEventStatus;
 import org.akaza.openclinica.bean.login.StudyUserRoleBean;
 import org.akaza.openclinica.bean.login.UserAccountBean;
-import org.akaza.openclinica.bean.managestudy.EventDefinitionCRFBean;
-import org.akaza.openclinica.bean.managestudy.StudyBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventBean;
-import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
-import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
-import org.akaza.openclinica.bean.submit.EventCRFBean;
-import org.akaza.openclinica.bean.submit.FormLayoutBean;
-import org.akaza.openclinica.bean.submit.ItemBean;
-import org.akaza.openclinica.bean.submit.ItemDataBean;
-import org.akaza.openclinica.bean.submit.ItemGroupMetadataBean;
+import org.akaza.openclinica.bean.managestudy.*;
+import org.akaza.openclinica.bean.submit.*;
+import org.akaza.openclinica.control.core.SecureController;
+import org.akaza.openclinica.core.EventCRFLocker;
+import org.akaza.openclinica.core.LockInfo;
 import org.akaza.openclinica.dao.admin.AuditDAO;
 import org.akaza.openclinica.dao.admin.CRFDAO;
 import org.akaza.openclinica.dao.core.CoreResources;
+import org.akaza.openclinica.dao.hibernate.EventCrfDao;
+import org.akaza.openclinica.dao.hibernate.UserAccountDao;
 import org.akaza.openclinica.dao.hibernate.VersioningMapDao;
 import org.akaza.openclinica.dao.managestudy.EventDefinitionCRFDAO;
 import org.akaza.openclinica.dao.managestudy.StudyEventDAO;
@@ -41,8 +25,11 @@ import org.akaza.openclinica.dao.submit.EventCRFDAO;
 import org.akaza.openclinica.dao.submit.FormLayoutDAO;
 import org.akaza.openclinica.dao.submit.ItemDAO;
 import org.akaza.openclinica.dao.submit.ItemGroupMetadataDAO;
+import org.akaza.openclinica.domain.datamap.EventCrf;
 import org.akaza.openclinica.domain.datamap.VersioningMap;
+import org.akaza.openclinica.domain.user.UserAccount;
 import org.akaza.openclinica.i18n.util.ResourceBundleProvider;
+import org.akaza.openclinica.service.PermissionService;
 import org.akaza.openclinica.view.StudyInfoPanel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +42,16 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import javax.sql.DataSource;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.sql.Connection;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 /**
  * Implement the functionality for displaying a table of Event CRFs for Source Data
@@ -79,6 +76,14 @@ public class ChangeCRFVersionController {
     @Autowired
     @Qualifier("sidebarInit")
     private SidebarInit sidebarInit;
+    @Autowired
+    EventCRFLocker eventCRFLocker;
+    @Autowired
+    UserAccountDao userAccountDao;
+    @Autowired
+    private EventCrfDao eventCrfDao;
+    @Autowired
+    private PermissionService permissionService;
 
     ResourceBundle resword, resformat, respage;
 
@@ -94,7 +99,8 @@ public class ChangeCRFVersionController {
     public ModelMap chooseCRFVersion(HttpServletRequest request, HttpServletResponse response, @RequestParam("crfId") int crfId,
             @RequestParam("crfName") String crfName, @RequestParam("formLayoutId") int formLayoutId, @RequestParam("formLayoutName") String formLayoutName,
             @RequestParam("studySubjectLabel") String studySubjectLabel, @RequestParam("studySubjectId") int studySubjectId,
-            @RequestParam("eventCRFId") int eventCRFId, @RequestParam("eventDefinitionCRFId") int eventDefinitionCRFId)
+            @RequestParam("eventCrfId") int eventCRFId, @RequestParam("eventDefinitionCRFId") int eventDefinitionCRFId,
+            @RequestParam("originatingPage") String originatingPage)
 
     {
 
@@ -110,7 +116,7 @@ public class ChangeCRFVersionController {
         resetPanel(request);
         ModelMap gridMap = new ModelMap();
 
-        request.setAttribute("eventCRFId", eventCRFId);
+        request.setAttribute("eventCrfId", eventCRFId);
         request.setAttribute("studySubjectLabel", studySubjectLabel);
         request.setAttribute("eventDefinitionCRFId", eventDefinitionCRFId);
         request.setAttribute("studySubjectId", studySubjectId);
@@ -118,6 +124,7 @@ public class ChangeCRFVersionController {
         request.setAttribute("crfName", crfName);
         request.setAttribute("formLayoutId", formLayoutId);
         request.setAttribute("formLayoutName", formLayoutName.trim());
+        request.setAttribute(SecureController.ORIGINATING_PAGE, originatingPage);
 
         ArrayList<String> pageMessages = initPageMessages(request);
         Object errorMessage = request.getParameter("errorMessage");
@@ -129,7 +136,6 @@ public class ChangeCRFVersionController {
         // set default CRF version label
         setupResource(request);
 
-        // from event_crf get
         StudyBean study = (StudyBean) request.getSession().getAttribute("study");
 
         CRFDAO cdao = new CRFDAO(dataSource);
@@ -143,12 +149,25 @@ public class ChangeCRFVersionController {
 
         EventCRFDAO ecdao = new EventCRFDAO(dataSource);
         EventCRFBean ecb = (EventCRFBean) ecdao.findByPK(eventCRFId);
+        final EventCrf ec = eventCrfDao.findById(eventCRFId);
+        if (permissionService.hasFormAccess(ec, formLayoutId, 0, request) != true) {
+            redirect(request, response, "/NoAccess?originatingPage="+ originatingPage);
+        }
 
         StudyEventDAO sedao = new StudyEventDAO(dataSource);
         StudyEventBean seb = (StudyEventBean) sedao.findByPK(ecb.getStudyEventId());
         request.setAttribute("eventCreateDate", formatDate(seb.getCreatedDate()));
         if (sedb.isRepeating()) {
             request.setAttribute("eventOrdinal", seb.getSampleOrdinal());
+        }
+        HttpSession session = request.getSession();
+        UserAccountBean ub = (UserAccountBean) session.getAttribute("userBean");
+        StudyBean currentPublicStudy = (StudyBean) session.getAttribute("publicStudy");
+        if (eventCRFLocker.isLocked(currentPublicStudy.getSchemaName()
+                + ecb.getStudyEventId() + ecb.getFormLayoutId(), ub.getId(), request.getSession().getId())) {
+            String errorData = getErrorData(request, ecb, currentPublicStudy);
+            if (redirect(request, response, "/ViewStudySubject?id=" + seb.getStudySubjectId() + "&errorData=" + errorData) == null)
+                return null;
         }
         if (study.getParentStudyId() > 0) {
             EventDefinitionCRFDAO edfdao = new EventDefinitionCRFDAO(dataSource);
@@ -179,6 +198,24 @@ public class ChangeCRFVersionController {
         return gridMap;
     }
 
+    private String getErrorData(HttpServletRequest request, EventCRFBean ecb, StudyBean currentPublicStudy) {
+        LockInfo lockInfo = eventCRFLocker.getLockOwner(currentPublicStudy.getSchemaName()
+                + ecb.getStudyEventId() + ecb.getFormLayoutId());
+        UserAccount userAccount = userAccountDao.findByUserId(lockInfo.getUserId());
+        request.setAttribute("errorData", "This form is currently unavailable for this action.\\n " +
+                "User " + userAccount.getUserName() + " is currently entering data.\\n " +
+                resword.getString("CRF_perform_action") +"\\n");
+        String errorData = "";
+        try {
+            errorData = URLEncoder.encode("This form is currently unavailable for this action.\\n " +
+                    "User " + userAccount.getUserName() + " is currently entering data.\\n " +
+                    resword.getString("CRF_perform_action") + "\\n", "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        return errorData;
+    }
+
     /*
      * Displays two set of columns for user to confirm his decision to switch to a new version of CRF
      * field name | OID | field value
@@ -191,13 +228,15 @@ public class ChangeCRFVersionController {
             @RequestParam(value = "formLayoutId", required = false) int formLayoutId,
             @RequestParam(value = "formLayoutName", required = false) String formLayoutName,
             @RequestParam(value = "studySubjectLabel", required = false) String studySubjectLabel,
-            @RequestParam(value = "studySubjectId", required = false) int studySubjectId, @RequestParam(value = "eventCRFId", required = false) int eventCRFId,
+            @RequestParam(value = "studySubjectId", required = false) int studySubjectId,
+            @RequestParam(value = "eventCrfId", required = false) int eventCRFId,
             @RequestParam(value = "eventDefinitionCRFId", required = false) int eventDefinitionCRFId,
             @RequestParam(value = "selectedVersionId", required = false) int selectedVersionId,
             @RequestParam(value = "selectedVersionName", required = false) String selectedVersionName,
             @RequestParam(value = "eventName", required = false) String eventName,
             @RequestParam(value = "eventCreateDate", required = false) String eventCreateDate,
             @RequestParam(value = "eventOrdinal", required = false) String eventOrdinal,
+            @RequestParam(value = "originatingPage", required = false) String originatingPage,
 
             @RequestParam("confirmCRFVersionSubmit") String as)
 
@@ -213,7 +252,7 @@ public class ChangeCRFVersionController {
         selectedVersionName = (formLayoutDao.findByPK(selectedVersionId)).getName().trim();
 
         resetPanel(request);
-        request.setAttribute("eventCRFId", eventCRFId);
+        request.setAttribute("eventCrfId", eventCRFId);
         request.setAttribute("studySubjectLabel", studySubjectLabel);
         request.setAttribute("eventDefinitionCRFId", eventDefinitionCRFId);
         request.setAttribute("studySubjectId", studySubjectId);
@@ -229,6 +268,8 @@ public class ChangeCRFVersionController {
         request.setAttribute("eventName", eventName);
         request.setAttribute("eventCreateDate", eventCreateDate);
         request.setAttribute("eventOrdinal", eventOrdinal);
+        request.setAttribute("originatingPage", originatingPage);
+
 
         ModelMap gridMap = new ModelMap();
         ArrayList<String> pageMessages = initPageMessages(request);
@@ -246,9 +287,11 @@ public class ChangeCRFVersionController {
             params.append("&selectedVersionName=" + selectedVersionName);
             params.append("&studySubjectLabel=" + studySubjectLabel);
             params.append("&studySubjectId=" + studySubjectId);
-            params.append("&eventCRFId=" + eventCRFId);
+            params.append("&eventCrfId=" + eventCRFId);
             params.append("&eventDefinitionCRFId=" + eventDefinitionCRFId);
             params.append("&errorMessage=" + errorMessage);
+            params.append("&originatingPage=" + originatingPage);
+
 
             if (redirect(request, response, params.toString()) == null) {
                 return null;
@@ -474,7 +517,7 @@ public class ChangeCRFVersionController {
     public ModelMap changeCRFVersionAction(HttpServletRequest request, HttpServletResponse response, @RequestParam("crfId") int crfId,
             @RequestParam("crfName") String crfName, @RequestParam("formLayoutId") int formLayoutId, @RequestParam("formLayoutName") String formLayoutName,
             @RequestParam("studySubjectLabel") String studySubjectLabel, @RequestParam("studySubjectId") int studySubjectId,
-            @RequestParam("eventCRFId") int eventCRFId, @RequestParam("eventDefinitionCRFId") int eventDefinitionCRFId,
+            @RequestParam("eventCrfId") int eventCRFId, @RequestParam("eventDefinitionCRFId") int eventDefinitionCRFId,
             @RequestParam(value = "newFormLayoutId", required = true) int newFormLayoutId)
 
     {
@@ -488,18 +531,24 @@ public class ChangeCRFVersionController {
         ArrayList<String> pageMessages = initPageMessages(request);
 
         setupResource(request);
+        HttpSession session = request.getSession();
         // update event_crf_id table
         try {
-            EventCRFDAO event_crf_dao = new EventCRFDAO(dataSource);
-            StudyEventDAO sedao = new StudyEventDAO(dataSource);
-
-            EventCRFBean ev_bean = (EventCRFBean) event_crf_dao.findByPK(eventCRFId);
-            StudyEventBean st_event_bean = (StudyEventBean) sedao.findByPK(ev_bean.getStudyEventId());
-
+            EventCRFDAO eventCRFDAO = new EventCRFDAO(dataSource);
+            StudyEventDAO sed = new StudyEventDAO(dataSource);
+            UserAccountBean ub = (UserAccountBean) session.getAttribute("userBean");
+            StudyBean currentPublicStudy = (StudyBean) session.getAttribute("publicStudy");
+            EventCRFBean ecb = (EventCRFBean) eventCRFDAO.findByPK(eventCRFId);
+            StudyEventBean seb = (StudyEventBean) sed.findByPK(ecb.getStudyEventId());
+            if (eventCRFLocker.isLocked(currentPublicStudy.getSchemaName()
+                    + ecb.getStudyEventId() + ecb.getFormLayoutId(), ub.getId(), request.getSession().getId())) {
+                String errorData = getErrorData(request, ecb, currentPublicStudy);
+                if (redirect(request, response, "/ViewStudySubject?id=" + seb.getStudySubjectId() + "&errorData=" + errorData) == null)
+                    return null;
+            }
             Connection con = dataSource.getConnection();
-            CoreResources.setSchema(con);
             con.setAutoCommit(false);
-            event_crf_dao.updateFormLayoutID(eventCRFId, newFormLayoutId, getCurrentUser(request).getId(), con);
+            eventCRFDAO.updateFormLayoutID(eventCRFId, newFormLayoutId, getCurrentUser(request).getId(), con);
 
             String status_before_update = null;
             SubjectEventStatus eventStatus = null;
@@ -508,7 +557,7 @@ public class ChangeCRFVersionController {
 
             // event signed, check if subject is signed as well
             StudySubjectDAO studySubDao = new StudySubjectDAO(dataSource);
-            StudySubjectBean studySubBean = (StudySubjectBean) studySubDao.findByPK(st_event_bean.getStudySubjectId());
+            StudySubjectBean studySubBean = (StudySubjectBean) studySubDao.findByPK(seb.getStudySubjectId());
             if (studySubBean.getStatus().isSigned()) {
                 status_before_update = auditDao.findLastStatus("study_subject", studySubBean.getId(), "8");
                 if (status_before_update != null && status_before_update.length() == 1) {
@@ -519,16 +568,16 @@ public class ChangeCRFVersionController {
                 studySubBean.setUpdater(getCurrentUser(request));
                 studySubDao.update(studySubBean, con);
             }
-            st_event_bean.setUpdater(getCurrentUser(request));
-            st_event_bean.setUpdatedDate(new Date());
+            seb.setUpdater(getCurrentUser(request));
+            seb.setUpdatedDate(new Date());
 
-            status_before_update = auditDao.findLastStatus("study_event", st_event_bean.getId(), "8");
+            status_before_update = auditDao.findLastStatus("study_event", seb.getId(), "8");
             if (status_before_update != null && status_before_update.length() == 1) {
                 int status = Integer.parseInt(status_before_update);
                 eventStatus = SubjectEventStatus.get(status);
-                st_event_bean.setSubjectEventStatus(eventStatus);
+                seb.setSubjectEventStatus(eventStatus);
             }
-            sedao.update(st_event_bean, con);
+            sed.update(seb, con);
 
             con.commit();
             con.setAutoCommit(true);
@@ -580,7 +629,9 @@ public class ChangeCRFVersionController {
     // to be depricated in aquamarine
     private boolean mayProceed(HttpServletRequest request) {
 
-        StudyUserRoleBean currentRole = (StudyUserRoleBean) request.getSession().getAttribute("userRole");
+        HttpSession session = request.getSession();
+        StudyUserRoleBean currentRole = (StudyUserRoleBean) session.getAttribute("userRole");
+
         Role r = currentRole.getRole();
 
         if (r.equals(Role.STUDYDIRECTOR) || r.equals(Role.COORDINATOR)) {

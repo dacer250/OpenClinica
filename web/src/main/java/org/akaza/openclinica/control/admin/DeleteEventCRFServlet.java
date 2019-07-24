@@ -12,6 +12,7 @@ import java.util.List;
 
 import org.akaza.openclinica.bean.admin.CRFBean;
 import org.akaza.openclinica.bean.core.ResolutionStatus;
+import org.akaza.openclinica.bean.core.Role;
 import org.akaza.openclinica.bean.core.Status;
 import org.akaza.openclinica.bean.core.SubjectEventStatus;
 import org.akaza.openclinica.bean.login.UserAccountBean;
@@ -21,29 +22,25 @@ import org.akaza.openclinica.bean.managestudy.StudyBean;
 import org.akaza.openclinica.bean.managestudy.StudyEventBean;
 import org.akaza.openclinica.bean.managestudy.StudyEventDefinitionBean;
 import org.akaza.openclinica.bean.managestudy.StudySubjectBean;
-import org.akaza.openclinica.bean.submit.CRFVersionBean;
-import org.akaza.openclinica.bean.submit.DisplayEventCRFBean;
-import org.akaza.openclinica.bean.submit.EventCRFBean;
-import org.akaza.openclinica.bean.submit.ItemDataBean;
-import org.akaza.openclinica.bean.submit.ItemFormMetadataBean;
+import org.akaza.openclinica.bean.submit.*;
 import org.akaza.openclinica.control.SpringServletAccess;
 import org.akaza.openclinica.control.core.SecureController;
 import org.akaza.openclinica.control.form.FormProcessor;
+import org.akaza.openclinica.core.LockInfo;
 import org.akaza.openclinica.dao.admin.CRFDAO;
 import org.akaza.openclinica.dao.hibernate.DynamicsItemFormMetadataDao;
 import org.akaza.openclinica.dao.hibernate.DynamicsItemGroupMetadataDao;
+import org.akaza.openclinica.dao.hibernate.EventCrfDao;
 import org.akaza.openclinica.dao.hibernate.RuleActionRunLogDao;
+import org.akaza.openclinica.dao.login.UserAccountDAO;
 import org.akaza.openclinica.dao.managestudy.DiscrepancyNoteDAO;
 import org.akaza.openclinica.dao.managestudy.EventDefinitionCRFDAO;
 import org.akaza.openclinica.dao.managestudy.StudyDAO;
 import org.akaza.openclinica.dao.managestudy.StudyEventDAO;
 import org.akaza.openclinica.dao.managestudy.StudyEventDefinitionDAO;
 import org.akaza.openclinica.dao.managestudy.StudySubjectDAO;
-import org.akaza.openclinica.dao.submit.CRFVersionDAO;
-import org.akaza.openclinica.dao.submit.EventCRFDAO;
-import org.akaza.openclinica.dao.submit.ItemDataDAO;
-import org.akaza.openclinica.dao.submit.ItemFormMetadataDAO;
-import org.akaza.openclinica.dao.submit.ItemGroupMetadataDAO;
+import org.akaza.openclinica.dao.submit.*;
+import org.akaza.openclinica.domain.datamap.EventCrf;
 import org.akaza.openclinica.domain.rule.action.RuleActionRunLogBean;
 import org.akaza.openclinica.view.Page;
 import org.akaza.openclinica.web.InsufficientPermissionException;
@@ -57,7 +54,7 @@ import org.akaza.openclinica.web.InsufficientPermissionException;
 public class DeleteEventCRFServlet extends SecureController {
     public static String STUDY_SUB_ID = "ssId";
 
-    public static String EVENT_CRF_ID = "ecId";
+    public static String EVENT_CRF_ID = "eventCrfId";
     DiscrepancyNoteDAO dnDao;
     RuleActionRunLogDao ruleActionRunLogDao;
     DynamicsItemFormMetadataDao dynamicsItemFormMetadataDao;
@@ -72,9 +69,10 @@ public class DeleteEventCRFServlet extends SecureController {
      */
     @Override
     public void mayProceed() throws InsufficientPermissionException {
-        if (ub.isSysAdmin()) {
+        if (!currentRole.getRole().equals(Role.MONITOR)) {
             return;
         }
+
         addPageMessage(respage.getString("no_have_correct_privilege_current_study") + respage.getString("change_study_contact_sysadmin"));
         throw new InsufficientPermissionException(Page.LIST_STUDY_SUBJECTS, resexception.getString("not_admin"), "1");
 
@@ -92,27 +90,38 @@ public class DeleteEventCRFServlet extends SecureController {
         StudySubjectDAO subdao = new StudySubjectDAO(sm.getDataSource());
         EventCRFDAO ecdao = new EventCRFDAO(sm.getDataSource());
         StudyDAO sdao = new StudyDAO(sm.getDataSource());
+        request.setAttribute("errorData", null);
+        String originatingPage = request.getParameter(ORIGINATING_PAGE);
+        request.setAttribute(ORIGINATING_PAGE, originatingPage);
+        EventCrfDao eventCrfDao = (EventCrfDao) SpringServletAccess.getApplicationContext(context).getBean("eventCrfDao");
 
         if (eventCRFId == 0) {
             addPageMessage(respage.getString("please_choose_an_event_CRF_to_delete"));
             request.setAttribute("id", new Integer(studySubId).toString());
             forwardPage(Page.VIEW_STUDY_SUBJECT_SERVLET);
         } else {
-            EventCRFBean eventCRF = (EventCRFBean) ecdao.findByPK(eventCRFId);
 
+            EventCRFBean eventCRF = (EventCRFBean) ecdao.findByPK(eventCRFId);
+            final EventCrf ec = eventCrfDao.findById(eventCRFId);
+
+            if (hasFormAccess(ec) != true) {
+                forwardPage(Page.NO_ACCESS);
+                return;
+            }
             StudySubjectBean studySub = (StudySubjectBean) subdao.findByPK(studySubId);
             request.setAttribute("studySub", studySub);
 
             // construct info needed on view event crf page
             CRFDAO cdao = new CRFDAO(sm.getDataSource());
-            CRFVersionDAO cvdao = new CRFVersionDAO(sm.getDataSource());
+            FormLayoutDAO fldao = new FormLayoutDAO(sm.getDataSource());
 
             int crfVersionId = eventCRF.getCRFVersionId();
-            CRFBean cb = cdao.findByVersionId(crfVersionId);
+            int formLayoutId = eventCRF.getFormLayoutId();
+            CRFBean cb = cdao.findByLayoutId(formLayoutId);
             eventCRF.setCrf(cb);
 
-            CRFVersionBean cvb = (CRFVersionBean) cvdao.findByPK(crfVersionId);
-            eventCRF.setCrfVersion(cvb);
+            FormLayoutBean flb = (FormLayoutBean) fldao.findByPK(formLayoutId);
+            eventCRF.setFormLayout(flb);
 
             // then get the definition so we can call
             // DisplayEventCRFBean.setFlags
@@ -140,7 +149,27 @@ public class DeleteEventCRFServlet extends SecureController {
             dnDao = new DiscrepancyNoteDAO(sm.getDataSource());
             ArrayList<ItemDataBean> itemData = iddao.findAllByEventCRFId(eventCRF.getId());
             request.setAttribute("items", itemData);
-
+            if (getEventCrfLocker().isLocked(currentPublicStudy.getSchemaName()
+                    + eventCRF.getStudyEventId() + eventCRF.getFormLayoutId(), ub.getId(), request.getSession().getId())) {
+                LockInfo lockInfo = getEventCrfLocker().getLockOwner(currentPublicStudy.getSchemaName()
+                        + eventCRF.getStudyEventId() + eventCRF.getFormLayoutId());
+                if (lockInfo != null) {
+                    UserAccountDAO udao = new UserAccountDAO(sm.getDataSource());
+                    UserAccountBean ubean = (UserAccountBean) udao.findByPK(lockInfo.getUserId());
+                    String errorData = "This form is currently unavailable for this action.\\n " +
+                            "User " + ubean.getName() +" is currently entering data.\\n " +
+                            resword.getString("CRF_perform_action") +"\\n";
+                    request.setAttribute("errorData", errorData);
+                }
+                if ("confirm".equalsIgnoreCase(action)) {
+                    request.setAttribute("id", new Integer(studySubId).toString());
+                    forwardPage(Page.VIEW_STUDY_SUBJECT_SERVLET);
+                    return;
+                } else {
+                    request.setAttribute("displayEventCRF", dec);
+                    forwardPage(Page.DELETE_EVENT_CRF);
+                }
+            }
             if ("confirm".equalsIgnoreCase(action)) {
 
                 request.setAttribute("displayEventCRF", dec);
@@ -157,6 +186,7 @@ public class DeleteEventCRFServlet extends SecureController {
                 eventCRF.setOldStatus(eventCRF.getStatus());
                 eventCRF.setStatus(Status.RESET);
                 eventCRF.setUpdater(ub);
+                eventCRF.setDateCompleted(null);
                 ecdao.update(eventCRF);
 
                 for (ItemDataBean itemdata : itemData) {
@@ -237,19 +267,21 @@ public class DeleteEventCRFServlet extends SecureController {
         dnb.setDescription(description);
         dnb.setDetailedNotes(detailedNotes);
         dnb.setDiscrepancyNoteTypeId(parentDiscrepancyNote.getDiscrepancyNoteTypeId()); // set to parent DN Type Id
-        dnb.setResolutionStatusId(ResolutionStatus.CLOSED_MODIFIED.getId()); // set to closed-modified
+        dnb.setResolutionStatusId(ResolutionStatus.CLOSED_MODIFIED.getId()); // set to closed Modified
         dnb.setColumn("value"); // this is needed for DN Map object
         dnb.setAssignedUser(null);
         dnb.setOwner(ub);
         dnb.setParentDnId(parentDiscrepancyNote.getId());
         dnb.setActivated(false);
+        dnb.setThreadUuid(parentDiscrepancyNote.getThreadUuid());
         dnb = (DiscrepancyNoteBean) getDnDao().create(dnb); // create child DN
         getDnDao().createMapping(dnb); // create DN mapping
 
         DiscrepancyNoteBean itemParentNote = (DiscrepancyNoteBean) getDnDao().findByPK(dnb.getParentDnId());
-        itemParentNote.setResolutionStatusId(ResolutionStatus.CLOSED_MODIFIED.getId()); // set to closed-modified
+        itemParentNote.setResolutionStatusId(ResolutionStatus.CLOSED_MODIFIED.getId()); // set to closed Modified
         itemParentNote.setAssignedUser(null);
         itemParentNote.setOwner(ub);
+        itemParentNote.setDetailedNotes(detailedNotes);
         getDnDao().update(itemParentNote); // update parent DN
         getDnDao().updateAssignedUserToNull(itemParentNote); // update parent DN assigned user
 
